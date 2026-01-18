@@ -14,7 +14,7 @@ It is very feasible to reach this quality level using vanilla JS, CSS, and HTML 
       - depth (many levels with delightful nuance) 
       - or high replay value (slowly increases in difficulty making you want to play again and again)
       - The best games have both but there are exceptions (flappy bird, etc)
-- Every interaction should feel satisfying (we call this "juice")
+- Every interaction should feel satisfying (we call this "juice"), this includes start screen, pause menus, heads-up displays (HUD), game over screen, etc
 
 ### Game Categories
 
