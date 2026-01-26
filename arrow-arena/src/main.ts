@@ -539,8 +539,20 @@ function spawnPlayers(): void {
 }
 
 function spawnNewBot(): void {
-  // Spawn bots from above the screen (Brawlhalla style - they fall in)
-  const spawnX = arenaLeft + arenaWidth * 0.2 + Math.random() * arenaWidth * 0.6;
+  // Find the player to spawn near them
+  const human = players.find(p => p.isPlayer && p.isAlive);
+
+  let spawnX: number;
+  if (human && Math.random() < 0.7) {
+    // 70% chance: Spawn near the player (but offset so not right on top)
+    const offset = (Math.random() < 0.5 ? -1 : 1) * (80 + Math.random() * 120);
+    spawnX = clamp(human.x + offset, arenaLeft + 30, arenaRight - 30);
+  } else {
+    // 30% chance: Spawn on a random platform
+    const randomPlatform = platforms[Math.floor(Math.random() * platforms.length)];
+    spawnX = randomPlatform.x + Math.random() * randomPlatform.width;
+  }
+
   const spawnY = -50 - Math.random() * 30; // Above screen
 
   botCount++;
@@ -552,7 +564,7 @@ function spawnNewBot(): void {
   // Spawn warning indicator at top of screen
   spawnSpawnIndicator(spawnX);
 
-  console.log("[spawnNewBot] Bot #" + botCount + " spawning from above at x=" + spawnX.toFixed(0));
+  console.log("[spawnNewBot] Bot #" + botCount + " spawning above x=" + spawnX.toFixed(0));
 }
 
 // Visual indicator showing where a bot will spawn
@@ -842,222 +854,136 @@ function updateArrows(): void {
 
 // ============= AI =============
 
-// Find which platform a position is on or above
-function findPlatformUnder(x: number, y: number): number {
-  for (let i = 0; i < platforms.length; i++) {
-    const p = platforms[i];
-    if (x >= p.x - 20 && x <= p.x + p.width + 20 && y <= p.y + 50) {
-      return i;
+// Get which platform a player is standing on (or null if in air)
+function getStandingPlatform(p: Player): Platform | null {
+  if (!p.isGrounded) return null;
+  for (const plat of platforms) {
+    if (p.x >= plat.x - 5 && p.x <= plat.x + plat.width + 5 &&
+        p.y >= plat.y - p.radius - 10 && p.y <= plat.y + 5) {
+      return plat;
     }
   }
-  return -1;
+  return null;
 }
 
-// Check if near platform edge (risk of falling)
-function isNearPlatformEdge(player: Player): { near: boolean; direction: number } {
-  if (!player.isGrounded) return { near: false, direction: 0 };
-
-  for (const p of platforms) {
-    // Check if on this platform
-    if (
-      player.x >= p.x - player.radius &&
-      player.x <= p.x + p.width + player.radius &&
-      player.y >= p.y - player.radius - 10 &&
-      player.y <= p.y + player.radius
-    ) {
-      const distToLeft = player.x - p.x;
-      const distToRight = p.x + p.width - player.x;
-      const edgeThreshold = 30;
-
-      if (distToLeft < edgeThreshold) {
-        return { near: true, direction: 1 }; // Move right
-      }
-      if (distToRight < edgeThreshold) {
-        return { near: true, direction: -1 }; // Move left
+// Find a platform that's below the given position
+function findPlatformBelow(x: number, y: number): Platform | null {
+  let best: Platform | null = null;
+  let bestDist = Infinity;
+  for (const plat of platforms) {
+    if (plat.y > y && x >= plat.x - 30 && x <= plat.x + plat.width + 30) {
+      const dist = plat.y - y;
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = plat;
       }
     }
   }
-  return { near: false, direction: 0 };
+  return best;
 }
 
-// Find the best platform to navigate to for reaching target
-function findBestPlatformPath(fromX: number, fromY: number, toX: number, toY: number): number {
-  let bestPlatform = 0;
-  let bestScore = Infinity;
-
-  for (let i = 0; i < platforms.length; i++) {
-    const p = platforms[i];
-    const platformCenterX = p.x + p.width / 2;
-    const platformY = p.y;
-
-    // Score based on how well this platform positions us toward target
-    const distToTarget = Math.abs(platformCenterX - toX) + Math.abs(platformY - toY);
-    const distFromCurrent = Math.abs(platformCenterX - fromX) + Math.abs(platformY - fromY);
-
-    // Prefer platforms that are: closer to target, reachable, and at appropriate height
-    let score = distToTarget * 2 + distFromCurrent;
-
-    // Bonus for platforms at similar or lower height than target (easier to navigate)
-    if (platformY >= toY) {
-      score -= 50;
-    }
-
-    if (score < bestScore) {
-      bestScore = score;
-      bestPlatform = i;
-    }
-  }
-
-  return bestPlatform;
-}
-
+// AI with platform navigation
 function updateAI(player: Player, playerIndex: number): void {
   if (!player.isAlive || player.isPlayer || player.isFalling) return;
 
   const now = Date.now();
-  const humanPlayer = players.find(p => p.isPlayer && p.isAlive);
+  const target = players.find(p => p.isPlayer && p.isAlive);
+  if (!target) return;
+  if (now < player.hitStunEnd) return;
 
-  // EMERGENCY: If near platform edge, move to safety
-  const edgeCheck = isNearPlatformEdge(player);
-  if (edgeCheck.near && now > player.hitStunEnd) {
-    player.vx += edgeCheck.direction * CONFIG.PLAYER_MOVE_SPEED * 0.6;
-    return;
-  }
+  const dx = target.x - player.x;
+  const dy = target.y - player.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
 
-  // Make decisions periodically
-  if (now - player.aiLastDecisionTime > CONFIG.AI_REACTION_TIME) {
+  const myPlatform = getStandingPlatform(player);
+  const targetPlatform = getStandingPlatform(target);
+
+  // Make decisions
+  if (now - player.aiLastDecisionTime > 150 + Math.random() * 150) {
     player.aiLastDecisionTime = now;
 
-    // Find target (prefer human player, or nearest alive enemy)
-    let target: Player | null = humanPlayer || null;
-    if (!target) {
-      let nearestDist = Infinity;
-      for (let i = 0; i < players.length; i++) {
-        if (i === playerIndex || !players[i].isAlive) continue;
-        const dist = distance(player.x, player.y, players[i].x, players[i].y);
-        if (dist < nearestDist) {
-          nearestDist = dist;
-          target = players[i];
-        }
-      }
-    }
+    // Default: move toward player
+    const spread = ((playerIndex * 31) % 5 - 2) * 25;
+    player.aiTargetX = target.x + spread;
+    player.aiWantsToJump = false;
 
-    if (target) {
-      const dx = target.x - player.x;
-      const dy = target.y - player.y;
-      const targetDist = Math.sqrt(dx * dx + dy * dy);
+    if (myPlatform) {
+      // I'm on a platform
+      const safeLeft = myPlatform.x + 20;
+      const safeRight = myPlatform.x + myPlatform.width - 20;
 
-      // Find which platform we're on and which platform target is on
-      const myPlatformIdx = findPlatformUnder(player.x, player.y);
-      const targetPlatformIdx = findPlatformUnder(target.x, target.y);
-
-      // Platform navigation logic
-      if (myPlatformIdx !== targetPlatformIdx && myPlatformIdx !== -1) {
-        // We're on different platforms - navigate between them
-        player.aiTargetPlatformIndex = findBestPlatformPath(player.x, player.y, target.x, target.y);
-        const targetPlatform = platforms[player.aiTargetPlatformIndex];
-        const platformCenterX = targetPlatform.x + targetPlatform.width / 2;
-
-        // Target the center of the platform we want to reach
-        player.aiTargetX = platformCenterX;
-
-        // Jump to reach higher platforms
-        if (targetPlatform.y < player.y - 30 && player.isGrounded) {
-          // Need to jump up to reach platform
-          const horizontalDist = Math.abs(platformCenterX - player.x);
-          if (horizontalDist < 80) {
-            player.aiWantsToJump = true;
-          }
-        }
-        // Drop down to lower platforms
-        else if (targetPlatform.y > player.y + 50) {
-          // Walk off edge to drop down
-          const myPlatform = platforms[myPlatformIdx];
-          if (platformCenterX < player.x) {
-            player.aiTargetX = myPlatform.x - 10; // Walk off left
+      if (targetPlatform && targetPlatform !== myPlatform) {
+        // Target is on a DIFFERENT platform
+        if (targetPlatform.y < myPlatform.y - 30) {
+          // Target platform is ABOVE - jump toward it
+          player.aiTargetX = clamp(target.x, safeLeft - 30, safeRight + 30);
+          player.aiWantsToJump = true;
+        } else if (targetPlatform.y > myPlatform.y + 30) {
+          // Target platform is BELOW - walk off edge toward target
+          if (target.x < player.x) {
+            player.aiTargetX = myPlatform.x - 15;
           } else {
-            player.aiTargetX = myPlatform.x + myPlatform.width + 10; // Walk off right
+            player.aiTargetX = myPlatform.x + myPlatform.width + 15;
           }
         }
-      } else {
-        // Same platform or target is in the air - chase directly
-        let desiredX = player.x;
-        if (Math.abs(dx) > 100) {
-          desiredX = player.x + Math.sign(dx) * 60;
-        } else if (Math.abs(dx) < 50 && targetDist < 150) {
-          // Close enough to shoot, maybe back off a little
-          desiredX = player.x - Math.sign(dx) * 30;
-        }
-
-        // Stay on platform
-        if (myPlatformIdx !== -1) {
-          const currentPlatform = platforms[myPlatformIdx];
-          const safeLeft = currentPlatform.x + 30;
-          const safeRight = currentPlatform.x + currentPlatform.width - 30;
-          player.aiTargetX = clamp(desiredX, safeLeft, safeRight);
+      } else if (!targetPlatform && target.y > player.y + 50) {
+        // Target is below (in air or falling) - check if safe to follow
+        const platBelow = findPlatformBelow(target.x, player.y);
+        if (platBelow) {
+          // There's a platform below - drop toward target
+          if (target.x < player.x) {
+            player.aiTargetX = myPlatform.x - 15;
+          } else {
+            player.aiTargetX = myPlatform.x + myPlatform.width + 15;
+          }
         } else {
-          player.aiTargetX = desiredX;
+          // No platform below - stay safe, just shoot
+          player.aiTargetX = clamp(target.x, safeLeft, safeRight);
         }
-
-        // Jump to dodge or reach target
-        if (player.isGrounded) {
-          if (dy < -50 && Math.abs(dx) < 100) {
-            // Target is above - jump toward them
-            player.aiWantsToJump = Math.random() < 0.15;
-          } else if (Math.random() < 0.05) {
-            // Random jump for unpredictability
-            player.aiWantsToJump = true;
-          }
-        }
-      }
-
-      // Aim towards target with some variance
-      const targetAngle = Math.atan2(dy, dx);
-      const variance = (Math.random() - 0.5) * CONFIG.AI_AIM_VARIANCE * (Math.PI / 180);
-      player.aimAngle = targetAngle + variance;
-
-      // Decide to start charging (if not already and target is in range)
-      if (player.chargeStartTime === 0 && targetDist < 350 && Math.random() < 0.4) {
-        player.chargeStartTime = now;
-        // Bots charge faster (40-80% of max charge time)
-        player.aiChargeTime = CONFIG.CHARGE_MIN_TIME + Math.random() * (CONFIG.CHARGE_MAX_TIME - CONFIG.CHARGE_MIN_TIME) * 0.4 + 200;
-        player.isAiming = true;
+      } else if (target.y < player.y - 30) {
+        // Target is above (in air) - jump toward them
+        player.aiTargetX = clamp(target.x, safeLeft - 20, safeRight + 20);
+        player.aiWantsToJump = true;
+      } else {
+        // Same level - chase but stay safe
+        player.aiTargetX = clamp(target.x + spread, safeLeft, safeRight);
+        if (Math.random() < 0.05) player.aiWantsToJump = true;
       }
     } else {
-      // No target, patrol current platform
-      const myPlatformIdx = findPlatformUnder(player.x, player.y);
-      if (myPlatformIdx !== -1) {
-        const platform = platforms[myPlatformIdx];
-        player.aiTargetX = platform.x + 40 + Math.random() * (platform.width - 80);
-      }
-      player.aiWantsToJump = false;
-      player.chargeStartTime = 0;
-      player.isAiming = false;
+      // In the air - just move toward target
+      player.aiTargetX = target.x;
     }
+
+    // Shooting
+    if (dist < 300 && player.chargeStartTime === 0 && Math.random() < 0.2) {
+      player.chargeStartTime = now;
+      player.aiChargeTime = 250 + Math.random() * 450;
+      player.isAiming = true;
+    }
+
+    // Aim
+    player.aimAngle = Math.atan2(dy, dx) + (Math.random() - 0.5) * 0.2;
   }
 
-  // Execute movement (slower, more controlled, even slower while charging)
-  const moveSpeedMult = player.chargeStartTime > 0 ? 0.4 : 1.0;
-  const dx = player.aiTargetX - player.x;
-  if (Math.abs(dx) > 12 && now > player.hitStunEnd) {
-    player.vx += Math.sign(dx) * CONFIG.PLAYER_MOVE_SPEED * 0.25 * moveSpeedMult;
+  // Execute movement
+  const moveDx = player.aiTargetX - player.x;
+  if (Math.abs(moveDx) > 8) {
+    const speed = player.chargeStartTime > 0 ? 0.25 : 0.4;
+    player.vx += Math.sign(moveDx) * CONFIG.PLAYER_MOVE_SPEED * speed;
   }
 
   // Execute jump
-  if (player.aiWantsToJump && player.isGrounded && now > player.hitStunEnd) {
+  if (player.aiWantsToJump && player.isGrounded) {
     player.vy = -CONFIG.PLAYER_JUMP_FORCE;
     player.isGrounded = false;
     player.aiWantsToJump = false;
   }
 
-  // Execute shooting - fire when charge time reached
-  if (player.chargeStartTime > 0 && now > player.hitStunEnd) {
-    const chargeTime = now - player.chargeStartTime;
-    if (chargeTime >= player.aiChargeTime) {
-      createArrow(player, playerIndex);
-      player.chargeStartTime = 0;
-      player.isAiming = false;
-    }
+  // Execute shoot
+  if (player.chargeStartTime > 0 && now - player.chargeStartTime >= player.aiChargeTime) {
+    createArrow(player, playerIndex);
+    player.chargeStartTime = 0;
+    player.isAiming = false;
   }
 }
 
