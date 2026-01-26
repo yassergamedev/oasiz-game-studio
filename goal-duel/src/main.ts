@@ -43,6 +43,8 @@ interface Settings {
   vfxBoostCloudIntensity: number;
   vfxDriftIntensity: number;
   vfxBumpIntensity: number;
+  // Debug/Visualization settings
+  showCarBounds: boolean; // Show car collision bounds visualization
   // Camera settings
   cameraZoomSpeedFactor: number;
   cameraZoomBallFactor: number;
@@ -238,6 +240,7 @@ class AudioManager {
   private lastBumpTime = 0;
   private lastRevTime = 0;
   private screechSource: AudioBufferSourceNode | null = null;
+  private crowdSource: AudioBufferSourceNode | null = null;
 
   constructor(private settings: Settings) {}
 
@@ -731,6 +734,16 @@ class AudioManager {
       return;
     }
 
+    // Stop any existing crowd sound before playing a new one
+    if (this.crowdSource) {
+      try {
+        this.crowdSource.stop();
+      } catch (e) {
+        // Source may have already stopped
+      }
+      this.crowdSource = null;
+    }
+
     // Resume AudioContext if suspended
     if (this.ctx.state === "suspended") {
       this.ctx.resume().catch((e) => {
@@ -747,9 +760,21 @@ class AudioManager {
       
       src.connect(g);
       g.connect(this.fx);
+      
+      // Track the source so we can stop it if needed
+      this.crowdSource = src;
+      
+      // Clear reference when sound ends
+      src.onended = () => {
+        if (this.crowdSource === src) {
+          this.crowdSource = null;
+        }
+      };
+      
       src.start(0);
     } catch (e) {
       console.warn("[AudioManager.playCrowd] Failed:", e);
+      this.crowdSource = null;
     }
   }
 
@@ -1145,7 +1170,7 @@ class GoalDuelGame {
       carFrictionAir: 0.02,
       carRestitution: 0.4,
       carDensity: 0.002,
-      ballRestitution: 0.95, // Higher bounce
+      ballRestitution: 0.98, // Very bouncy
       ballFriction: 0.0001, // Very low friction (slippery)
       ballFrictionAir: 0.005, // Lower air friction
       ballDensity: 0.0012,
@@ -1159,6 +1184,7 @@ class GoalDuelGame {
       vfxBoostClouds: true,
       vfxDrifting: true,
       vfxBumping: true,
+      showCarBounds: false, // Debug: show car collision bounds
       vfxBoostCloudIntensity: 2,
       vfxDriftIntensity: 1.5,
       vfxBumpIntensity: 1.3,
@@ -1193,8 +1219,8 @@ class GoalDuelGame {
       uiHudScoreSizeMobile: 14,
       uiHudSpacing: 6,
       uiHudSpacingMobile: 5,
-      uiHudTopOffset: 8,
-      uiHudTopOffsetMobile: 8,
+      uiHudTopOffset: 0,
+      uiHudTopOffsetMobile: 0,
     };
     try {
       const saved = localStorage.getItem("gameSettings");
@@ -2116,8 +2142,33 @@ class GoalDuelGame {
       const normalizedX = clamp(px / maxRadius, -1, 1);
       const normalizedY = clamp(py / maxRadius, -1, 1);
       
-      this.playerInput.throttle = clamp(-normalizedY, -1, 1);
-      this.playerInput.steer = clamp(normalizedX, -1, 1);
+      // Calculate the desired direction angle from joystick input
+      // Reverse Y to fix direction mapping (down=up), keep X normal (left=left, right=right)
+      const desiredAngle = Math.atan2(normalizedY, normalizedX);
+      const joystickMagnitude = Math.hypot(normalizedX, normalizedY);
+      
+      // Only apply input if joystick is moved significantly
+      if (joystickMagnitude > 0.1) {
+        // Get current car angle
+        const carAngle = this.playerCar.angle;
+        
+        // Calculate angle difference between car's current facing and desired direction
+        let angleDiff = desiredAngle - carAngle;
+        
+        // Normalize angle to [-PI, PI]
+        while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+        while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+        
+        // Convert to throttle and steering
+        // Throttle: magnitude of joystick push (how hard you're pushing)
+        // Steering: angle difference (how much we need to turn)
+        this.playerInput.throttle = joystickMagnitude; // Always forward when joystick is pushed
+        this.playerInput.steer = clamp(angleDiff / Math.PI, -1, 1); // Normalize angle diff to [-1, 1]
+      } else {
+        // Joystick released or at center
+        this.playerInput.throttle = 0;
+        this.playerInput.steer = 0;
+      }
     };
 
     const handleJoystickStart = (x: number, y: number, pointerId: number) => {
@@ -2231,8 +2282,33 @@ class GoalDuelGame {
       const normalizedX = clamp(px / maxRadius, -1, 1);
       const normalizedY = clamp(py / maxRadius, -1, 1);
       
-      this.botInput.throttle = clamp(-normalizedY, -1, 1);
-      this.botInput.steer = clamp(normalizedX, -1, 1);
+      // Calculate the desired direction angle from joystick input
+      // Reverse Y to fix direction mapping (down=up), keep X normal (left=left, right=right)
+      const desiredAngle = Math.atan2(normalizedY, normalizedX);
+      const joystickMagnitude = Math.hypot(normalizedX, normalizedY);
+      
+      // Only apply input if joystick is moved significantly
+      if (joystickMagnitude > 0.1) {
+        // Get current car angle
+        const carAngle = this.botCar.angle;
+        
+        // Calculate angle difference between car's current facing and desired direction
+        let angleDiff = desiredAngle - carAngle;
+        
+        // Normalize angle to [-PI, PI]
+        while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+        while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+        
+        // Convert to throttle and steering
+        // Throttle: magnitude of joystick push (how hard you're pushing)
+        // Steering: angle difference (how much we need to turn)
+        this.botInput.throttle = joystickMagnitude; // Always forward when joystick is pushed
+        this.botInput.steer = clamp(angleDiff / Math.PI, -1, 1); // Normalize angle diff to [-1, 1]
+      } else {
+        // Joystick released or at center
+        this.botInput.throttle = 0;
+        this.botInput.steer = 0;
+      }
     };
 
     const handleJoystickStartP2 = (x: number, y: number, pointerId: number) => {
@@ -3947,19 +4023,33 @@ class GoalDuelGame {
     const maxSpeed = this.settings.carMaxSpeedBoost;
     const speedRatio = Math.min(playerSpeed / maxSpeed, 1.0);
     
-    // Zoom IN when accelerating (higher speed = zoom in more)
-    // Zoom OUT when not accelerating (lower speed = zoom out more)
-    const speedZoomAdjust = speedRatio * this.settings.cameraZoomSpeedFactor;
-    const speedZoomFactor = speedZoomAdjust; // Always zoom in on acceleration
+    // Base zoom at 1.20
+    let baseZoom = 1.20;
     
-    // Zoom based on ball distance (closer ball = zoom in more) - small adjustment
-    const ballDist = Vector.magnitude(Vector.sub(this.ball.position, this.playerCar.position));
-    const maxDist = Math.sqrt(fixedFieldW * fixedFieldW + fixedFieldH * fixedFieldH);
-    const distRatio = Math.min(ballDist / maxDist, 1.0);
-    const ballZoomAdjust = (1.0 - distRatio) * this.settings.cameraZoomBallFactor;
+    // In BOT mode: intense zoom when accelerating (subtract from zoom to zoom IN)
+    if (this.matchMode === "BOT") {
+      // Intense zoom: subtract from base zoom to zoom IN dramatically
+      // Higher speed = more zoom in (lower zoom value = closer view)
+      const intenseZoomAmount = speedRatio * 0.45; // 45% zoom in at max speed (very dramatic)
+      baseZoom = 1.20 - intenseZoomAmount; // Subtract to zoom IN
+      // Clamp to prevent zooming too close
+      baseZoom = Math.max(0.75, baseZoom); // Don't zoom closer than 0.75
+    } else {
+      // LOCAL_2P mode: normal zoom behavior (add small adjustments)
+      const baseZoomFactor = this.settings.cameraZoomSpeedFactor;
+      const speedZoomAdjust = speedRatio * baseZoomFactor;
+      
+      // Zoom based on ball distance (closer ball = zoom in more) - small adjustment
+      const ballDist = Vector.magnitude(Vector.sub(this.ball.position, this.playerCar.position));
+      const maxDist = Math.sqrt(fixedFieldW * fixedFieldW + fixedFieldH * fixedFieldH);
+      const distRatio = Math.min(ballDist / maxDist, 1.0);
+      const ballZoomAdjust = (1.0 - distRatio) * this.settings.cameraZoomBallFactor;
+      
+      // Add adjustments (but these are small, so effect is minimal)
+      baseZoom = 1.20 + speedZoomAdjust + ballZoomAdjust;
+    }
     
-    // Base zoom at 1.20, with small adjustments added
-    this.targetZoom = 1.20 + speedZoomFactor + ballZoomAdjust;
+    this.targetZoom = baseZoom;
     
     // Smooth zoom transition
     const zoomSmooth = this.settings.cameraZoomSmoothness;
@@ -4882,14 +4972,16 @@ class GoalDuelGame {
 
       ctx.drawImage(img, -desiredW * 0.5, -desiredH * 0.5, desiredW, desiredH);
       
-      // Draw collision bounds visualization
-      const actualCarWidth = this.settings.carWidth * this.settings.carBoundsWidth;
-      const actualCarHeight = this.settings.carHeight * this.settings.carBoundsHeight;
-      ctx.strokeStyle = "rgba(255, 255, 0, 0.6)";
-      ctx.lineWidth = 2;
-      ctx.setLineDash([4, 4]);
-      ctx.strokeRect(-actualCarWidth * 0.5, -actualCarHeight * 0.5, actualCarWidth, actualCarHeight);
-      ctx.setLineDash([]);
+      // Draw collision bounds visualization (if enabled)
+      if (this.settings.showCarBounds) {
+        const actualCarWidth = this.settings.carWidth * this.settings.carBoundsWidth;
+        const actualCarHeight = this.settings.carHeight * this.settings.carBoundsHeight;
+        ctx.strokeStyle = "rgba(0, 255, 255, 0.8)"; // Cyan for better visibility
+        ctx.lineWidth = 3;
+        ctx.setLineDash([6, 4]);
+        ctx.strokeRect(-actualCarWidth * 0.5, -actualCarHeight * 0.5, actualCarWidth, actualCarHeight);
+        ctx.setLineDash([]);
+      }
       
       ctx.restore();
       return;
@@ -4897,18 +4989,20 @@ class GoalDuelGame {
 
     this.drawCarFallback(ctx, body, col, glow);
     
-    // Draw collision bounds visualization for fallback car too
-    ctx.save();
-    ctx.translate(body.position.x, body.position.y);
-    ctx.rotate(body.angle);
-    const actualCarWidth = this.settings.carWidth * this.settings.carBoundsWidth;
-    const actualCarHeight = this.settings.carHeight * this.settings.carBoundsHeight;
-    ctx.strokeStyle = "rgba(255, 255, 0, 0.6)";
-    ctx.lineWidth = 2;
-    ctx.setLineDash([4, 4]);
-    ctx.strokeRect(-actualCarWidth * 0.5, -actualCarHeight * 0.5, actualCarWidth, actualCarHeight);
-    ctx.setLineDash([]);
-    ctx.restore();
+    // Draw collision bounds visualization for fallback car too (if enabled)
+    if (this.settings.showCarBounds) {
+      ctx.save();
+      ctx.translate(body.position.x, body.position.y);
+      ctx.rotate(body.angle);
+      const actualCarWidth = this.settings.carWidth * this.settings.carBoundsWidth;
+      const actualCarHeight = this.settings.carHeight * this.settings.carBoundsHeight;
+      ctx.strokeStyle = "rgba(0, 255, 255, 0.8)"; // Cyan for better visibility
+      ctx.lineWidth = 3;
+      ctx.setLineDash([6, 4]);
+      ctx.strokeRect(-actualCarWidth * 0.5, -actualCarHeight * 0.5, actualCarWidth, actualCarHeight);
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
   }
 
   private drawCarFallback(ctx: CanvasRenderingContext2D, body: Matter.Body, col: string, glow: string): void {
