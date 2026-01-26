@@ -931,6 +931,10 @@ class GoalDuelGame {
   private botPositionHistory: Array<{ x: number; y: number; time: number }> = []; // Track bot position over time for stuck detection
   private botStuckTimer = 0; // Time since bot was last making progress
   private botStuckThreshold = 1.5; // Seconds without progress before considered stuck
+  private botBackwardTimer = 0; // Timer for backward movement
+  private botBackwardDuration = 0; // How long to go backwards
+  private botStopTimer = 0; // Timer for stopping when close to ball
+  private botStopDuration = 0; // How long to stop
   private prevBallVel = { x: 0, y: 0 };
   private prevBallPos = { x: 0, y: 0 };
 
@@ -969,8 +973,6 @@ class GoalDuelGame {
   private elImgQuick = document.getElementById("imgQuick") as HTMLImageElement;
   private elBtnLocal = document.getElementById("btnLocal") as HTMLButtonElement;
   private elImgLocal = document.getElementById("imgLocal") as HTMLImageElement;
-  private elImgMenu = document.getElementById("imgMenu") as HTMLImageElement;
-  private elBtnHow = document.getElementById("btnHow") as HTMLButtonElement;
   private elCountryStage = document.getElementById("countryStage") as HTMLDivElement;
   private elCountryGrid = document.getElementById("countryGrid") as HTMLDivElement;
   private elBtnCountryBack = document.getElementById("btnCountryBack") as HTMLButtonElement;
@@ -1128,11 +1130,11 @@ class GoalDuelGame {
       carWidth: 73,
       carHeight: 60,
       carBoundsWidth: 1,
-      carBoundsHeight: 2,
+      carBoundsHeight: 2.8, // Increased by 40% (2 * 1.4 = 2.8)
       carSpriteWidth: 78,
       carSpriteHeight: 150,
       ballRadius: 13,
-      ballBoundsScale: 2,
+      ballBoundsScale: 2.8, // Increased by 40% (2 * 1.4 = 2.8)
       ballSpriteSize: 40,
       carMaxSpeed: 20,
       carMaxSpeedBoost: 25,
@@ -1143,9 +1145,9 @@ class GoalDuelGame {
       carFrictionAir: 0.02,
       carRestitution: 0.4,
       carDensity: 0.002,
-      ballRestitution: 0.92,
-      ballFriction: 0.0012,
-      ballFrictionAir: 0.011,
+      ballRestitution: 0.95, // Higher bounce
+      ballFriction: 0.0001, // Very low friction (slippery)
+      ballFrictionAir: 0.005, // Lower air friction
       ballDensity: 0.0012,
       // Stadium bounds defaults (user-optimized values)
       fieldWidth: 1050,
@@ -1227,7 +1229,6 @@ class GoalDuelGame {
     this.elMenuLogo.src = urlLogo;
     this.elImgQuick.src = urlQuick;
     this.elImgLocal.src = urlLocal;
-    this.elImgMenu.src = urlMenu;
     this.elImgEndPlay.src = urlPlay;
     this.elImgEndMenu.src = urlMenu;
     if (this.elImgMenuBtn) this.elImgMenuBtn.src = urlBack;
@@ -1561,10 +1562,6 @@ class GoalDuelGame {
       this.elImgSound.src = this.settings.music ? urlSoundOn : urlSoundOff;
     });
 
-    this.elBtnHow.addEventListener("click", () => {
-      tap();
-      this.showInfo(true);
-    });
 
     this.elBtnCountryBack.addEventListener("click", () => {
       tap();
@@ -1726,12 +1723,12 @@ class GoalDuelGame {
     const physicsSettings = [
       { key: "carWidth", label: "Car Width", desc: "Physics body width", min: 20, max: 100, step: 1, format: (v: number) => String(v) },
       { key: "carHeight", label: "Car Height", desc: "Physics body height", min: 10, max: 60, step: 1, format: (v: number) => String(v) },
-      { key: "carBoundsWidth", label: "Car Bounds Width", desc: "Width multiplier for collision bounds", min: 0.5, max: 2.0, step: 0.05, format: (v: number) => v.toFixed(2) },
-      { key: "carBoundsHeight", label: "Car Bounds Height", desc: "Height multiplier for collision bounds", min: 0.5, max: 2.0, step: 0.05, format: (v: number) => v.toFixed(2) },
+      { key: "carBoundsWidth", label: "Car Bounds Width", desc: "Width multiplier for collision bounds", min: 0.1, max: 10.0, step: 0.01, format: (v: number) => v.toFixed(2) },
+      { key: "carBoundsHeight", label: "Car Bounds Height", desc: "Height multiplier for collision bounds", min: 0.1, max: 10.0, step: 0.01, format: (v: number) => v.toFixed(2) },
       { key: "carSpriteWidth", label: "Car Sprite Width", desc: "Visual sprite width", min: 20, max: 120, step: 1, format: (v: number) => String(v) },
       { key: "carSpriteHeight", label: "Car Sprite Height", desc: "Visual sprite height", min: 20, max: 200, step: 1, format: (v: number) => String(v) },
       { key: "ballRadius", label: "Ball Radius", desc: "Physics ball size", min: 4, max: 20, step: 0.5, format: (v: number) => v.toFixed(1) },
-      { key: "ballBoundsScale", label: "Ball Bounds Scale", desc: "Scale collision bounds to match sprite", min: 0.5, max: 2.0, step: 0.05, format: (v: number) => v.toFixed(2) },
+      { key: "ballBoundsScale", label: "Ball Bounds Scale", desc: "Scale collision bounds to match sprite", min: 0.1, max: 10.0, step: 0.01, format: (v: number) => v.toFixed(2) },
       { key: "ballSpriteSize", label: "Ball Sprite Size", desc: "Visual ball size", min: 4, max: 40, step: 1, format: (v: number) => String(v) },
       { key: "carMaxSpeed", label: "Car Max Speed", desc: "Normal max speed", min: 4, max: 20, step: 0.1, format: (v: number) => v.toFixed(1) },
       { key: "carMaxSpeedBoost", label: "Car Max Speed (Boost)", desc: "Boost max speed", min: 6, max: 25, step: 0.1, format: (v: number) => v.toFixed(1) },
@@ -2821,6 +2818,11 @@ class GoalDuelGame {
     // Reset bot stuck detection
     this.botPositionHistory = [];
     this.botStuckTimer = 0;
+    // Reset timers
+    this.botBackwardTimer = 0;
+    this.botBackwardDuration = 0;
+    this.botStopTimer = 0;
+    this.botStopDuration = 0;
 
     this.audio.ensure();
     // Music should already be playing from menu, just ensure it continues
@@ -3297,274 +3299,124 @@ class GoalDuelGame {
   private computeBotAI(dt: number): void {
     const car = this.botCar;
     const ball = this.ball;
-
-    // Track bot position for stuck detection
-    const currentTime = this.matchTime;
-    const currentPos = { x: car.position.x, y: car.position.y };
+    const carAngle = car.angle;
     
-    // Add current position to history
-    this.botPositionHistory.push({ ...currentPos, time: currentTime });
-    
-    // Keep only recent history (last 3 seconds)
-    const historyCutoff = currentTime - 3;
-    this.botPositionHistory = this.botPositionHistory.filter(p => p.time > historyCutoff);
-    
-    // Detect if bot is stuck (not making progress)
-    let isStuck = false;
-    if (this.botPositionHistory.length >= 10) {
-      // Check if bot has moved significantly in the last 1.5 seconds
-      const recentPositions = this.botPositionHistory.filter(p => p.time > currentTime - this.botStuckThreshold);
-      if (recentPositions.length >= 5) {
-        const oldestPos = recentPositions[0];
-        const distanceTraveled = Math.sqrt(
-          Math.pow(currentPos.x - oldestPos.x, 2) + 
-          Math.pow(currentPos.y - oldestPos.y, 2)
-        );
-        
-        // Also check if bot is making progress toward ball or target
-        const toBall = Vector.sub(ball.position, car.position);
-        const distToBall = Vector.magnitude(toBall);
-        const ballMovement = distToBall < 200; // Ball is close
-        
-        // Bot is stuck if: hasn't moved much AND (ball is far OR not getting closer to ball)
-        const minMovementThreshold = 30; // Minimum distance to have moved
-        if (distanceTraveled < minMovementThreshold) {
-          this.botStuckTimer += dt;
-          if (this.botStuckTimer > this.botStuckThreshold) {
-            isStuck = true;
-          }
-        } else {
-          // Bot is making progress, reset stuck timer
-          this.botStuckTimer = 0;
-        }
-      }
-    }
-
-    // Bot attacks bottom goal (player's goal)
-    const goalBottom = { x: 0, y: this.fieldH * 0.5 + 60 };
-
-    // Vector from car to ball
+    // Calculate distance to ball
     const toBall = Vector.sub(ball.position, car.position);
     const distToBall = Vector.magnitude(toBall);
-
-    // Car's forward direction
-    const carFwd = { x: Math.cos(car.angle), y: Math.sin(car.angle) };
     
-    // Normalized direction to ball
-    const dirToBall = distToBall > 0.1 ? Vector.normalise(toBall) : { x: 0, y: 0 };
+    // Update timers
+    this.botBackwardTimer += dt;
+    this.botStopTimer += dt;
     
-    // Check if ball is in front or behind car
-    const ballDotFwd = dirToBall.x * carFwd.x + dirToBall.y * carFwd.y;
-    const ballInFront = ballDotFwd > 0.2;
-    const ballBehind = ballDotFwd < -0.2;
-    
-    // Calculate direction from ball to goal
-    const ballToGoal = Vector.sub(goalBottom, ball.position);
-    const dirToGoal = Vector.normalise(ballToGoal);
-    
-    // Calculate where we should position to push ball toward goal
-    // Position behind the ball, in the direction we want to push it
-    const pushDistance = 70; // Distance behind ball to position
-    const idealPushPos = Vector.add(ball.position, Vector.mult(dirToGoal, -pushDistance));
-    
-    // Vector from car to ideal push position
-    const toPushPos = Vector.sub(idealPushPos, car.position);
-    const distToPushPos = Vector.magnitude(toPushPos);
-    
-    // Angle we need to face to reach push position
-    const pushAngle = Math.atan2(toPushPos.y, toPushPos.x);
-    const carAngle = car.angle;
-    let angleToPush = angleWrap(pushAngle - carAngle);
-    
-    // Check if bot is near a wall and stuck with the ball
-    const wallMargin = 120; // Distance from wall to consider "near wall"
-    const nearLeftWall = car.position.x < -this.fieldW * 0.5 + wallMargin;
-    const nearRightWall = car.position.x > this.fieldW * 0.5 - wallMargin;
-    const nearTopWall = car.position.y < -this.fieldH * 0.5 + wallMargin;
-    const nearBottomWall = car.position.y > this.fieldH * 0.5 - wallMargin;
-    const nearWall = nearLeftWall || nearRightWall || nearTopWall || nearBottomWall;
-    
-    // Check if bot is stuck in a corner with the ball
-    // A corner is when we're near two walls at once
-    const inCorner = (nearLeftWall || nearRightWall) && (nearTopWall || nearBottomWall);
-    const ballInCorner = distToBall < 100 && inCorner;
-    
-    // Check if ball is also near the corner walls
-    const ballNearLeftWall = ball.position.x < -this.fieldW * 0.5 + wallMargin;
-    const ballNearRightWall = ball.position.x > this.fieldW * 0.5 - wallMargin;
-    const ballNearTopWall = ball.position.y < -this.fieldH * 0.5 + wallMargin;
-    const ballNearBottomWall = ball.position.y > this.fieldH * 0.5 - wallMargin;
-    const ballInCornerArea = (ballNearLeftWall || ballNearRightWall) && (ballNearTopWall || ballNearBottomWall);
-    
-    // Bot is stuck in corner if: in corner, ball is close, and ball is also in corner area
-    const stuckInCorner = inCorner && distToBall < 120 && ballInCornerArea;
-    
-    // Check if ball is between car and wall (car is stuck)
-    let ballBetweenCarAndWall = false;
-    if (nearWall && distToBall < 90) {
-      // Determine which wall we're near and the direction to it
-      let wallDir = { x: 0, y: 0 };
-      if (nearLeftWall) wallDir.x = -1;
-      else if (nearRightWall) wallDir.x = 1;
-      if (nearTopWall) wallDir.y = -1;
-      else if (nearBottomWall) wallDir.y = 1;
-      
-      // Check if car is facing toward the wall
-      const facingWall = carFwd.x * wallDir.x + carFwd.y * wallDir.y > 0.3;
-      
-      // Check if ball is in the direction of the wall (between car and wall)
-      const toBallNorm = distToBall > 0.1 ? { x: toBall.x / distToBall, y: toBall.y / distToBall } : { x: 0, y: 0 };
-      const ballTowardWall = toBallNorm.x * wallDir.x + toBallNorm.y * wallDir.y > 0.3;
-      
-      // Check if ball is closer to wall than car (ball is between car and wall)
-      let carToWallDist = Infinity;
-      let ballToWallDist = Infinity;
-      if (nearLeftWall) {
-        carToWallDist = Math.abs(car.position.x - (-this.fieldW * 0.5));
-        ballToWallDist = Math.abs(ball.position.x - (-this.fieldW * 0.5));
-      } else if (nearRightWall) {
-        carToWallDist = Math.abs(car.position.x - (this.fieldW * 0.5));
-        ballToWallDist = Math.abs(ball.position.x - (this.fieldW * 0.5));
-      }
-      if (nearTopWall) {
-        const dist = Math.abs(car.position.y - (-this.fieldH * 0.5));
-        if (dist < carToWallDist) carToWallDist = dist;
-        const ballDist = Math.abs(ball.position.y - (-this.fieldH * 0.5));
-        if (ballDist < ballToWallDist) ballToWallDist = ballDist;
-      } else if (nearBottomWall) {
-        const dist = Math.abs(car.position.y - (this.fieldH * 0.5));
-        if (dist < carToWallDist) carToWallDist = dist;
-        const ballDist = Math.abs(ball.position.y - (this.fieldH * 0.5));
-        if (ballDist < ballToWallDist) ballToWallDist = ballDist;
-      }
-      
-      // Bot is stuck if: near wall, facing wall, ball is toward wall, and ball is closer to wall
-      ballBetweenCarAndWall = facingWall && ballTowardWall && ballToWallDist < carToWallDist + 20;
-    }
-    
-    // Decision: Should we reverse to get better position?
-    // Reverse if:
-    // 1. Ball is behind us AND we're not well positioned to push it
-    // 2. OR we're facing the wrong way (more than 90 degrees off) AND ball is close behind
-    // 3. OR we're stuck near a wall with the ball between us and the wall
-    // 4. OR we're stuck in a corner with the ball
-    // 5. OR we're stuck (not making progress) - force reposition
-    const facingWrongWay = Math.abs(angleToPush) > Math.PI * 0.5;
-    const tooCloseToBall = distToBall < 50;
-    const badPosition = distToPushPos > 100 || facingWrongWay;
-    
-    const shouldReverse = (ballBehind && badPosition) || (ballBehind && tooCloseToBall && facingWrongWay) || ballBetweenCarAndWall || stuckInCorner || isStuck;
-    
-    // If reversing, we want to back away from ball to get better angle
-    if (shouldReverse) {
-      if (isStuck) {
-        // Bot is stuck: force a strong reverse and turn to break free
-        // Back away from current position and turn toward a better angle
-        const carFwd = { x: Math.cos(car.angle), y: Math.sin(car.angle) };
-        
-        // Calculate a direction away from where we're stuck (perpendicular to current facing)
-        const perpendicular = { x: -carFwd.y, y: carFwd.x }; // 90 degrees to the right
-        
-        // Also consider backing away from ball to create space
-        const awayFromBall = Vector.normalise(Vector.mult(toBall, -1));
-        
-        // Combine: move perpendicular AND away from ball
-        const escapeDir = Vector.normalise({
-          x: perpendicular.x * 0.7 + awayFromBall.x * 0.3,
-          y: perpendicular.y * 0.7 + awayFromBall.y * 0.3
-        });
-        
-        const reverseAngle = Math.atan2(escapeDir.y, escapeDir.x);
-        angleToPush = angleWrap(reverseAngle - carAngle);
-        
-        // Reset stuck timer when we start escaping
-        this.botStuckTimer = 0;
-      } else if (stuckInCorner) {
-        // Stuck in corner: back away from corner toward center of field
-        const awayFromCorner = { x: 0, y: 0 };
-        // Move away from both walls
-        if (nearLeftWall) awayFromCorner.x = 1; // Move right
-        else if (nearRightWall) awayFromCorner.x = -1; // Move left
-        if (nearTopWall) awayFromCorner.y = 1; // Move down
-        else if (nearBottomWall) awayFromCorner.y = -1; // Move up
-        
-        // Also move away from ball to create space
-        const awayFromBall = Vector.normalise(Vector.mult(toBall, -1));
-        // Combine: move away from corner AND away from ball
-        const combinedDir = Vector.normalise({
-          x: awayFromCorner.x * 0.6 + awayFromBall.x * 0.4,
-          y: awayFromCorner.y * 0.6 + awayFromBall.y * 0.4
-        });
-        
-        const reverseAngle = Math.atan2(combinedDir.y, combinedDir.x);
-        angleToPush = angleWrap(reverseAngle - carAngle);
-      } else if (ballBetweenCarAndWall) {
-        // Stuck near wall: back away from wall and turn to face ball from front
-        const awayFromWall = { x: 0, y: 0 };
-        if (nearLeftWall) awayFromWall.x = 1; // Move right
-        else if (nearRightWall) awayFromWall.x = -1; // Move left
-        if (nearTopWall) awayFromWall.y = 1; // Move down
-        else if (nearBottomWall) awayFromWall.y = -1; // Move up
-        
-        // Angle to back away from wall while turning toward ball
-        const reverseAngle = Math.atan2(awayFromWall.y, awayFromWall.x);
-        angleToPush = angleWrap(reverseAngle - carAngle);
+    // Check if we should start going backwards (15% chance, every 2-4 seconds)
+    if (this.botBackwardDuration <= 0 && this.botBackwardTimer > (2 + Math.random() * 2)) {
+      if (Math.random() < 0.15) {
+        // Start going backwards for 0.3-0.6 seconds
+        this.botBackwardDuration = 0.3 + Math.random() * 0.3;
+        this.botBackwardTimer = 0;
       } else {
-        // Normal reverse: back away from ball
-        const reverseAngle = Math.atan2(-toBall.y, -toBall.x); // Angle away from ball
-        angleToPush = angleWrap(reverseAngle - carAngle);
+        this.botBackwardTimer = 0; // Reset timer
       }
     }
     
-    // Steering: always turn toward where we want to go
-    const steerGain = 2.2;
-    const steer = clamp(angleToPush * steerGain, -1, 1);
+    // Check if we should stop when close to ball (random chance when < 80px)
+    if (this.botStopDuration <= 0 && distToBall < 80 && this.botStopTimer > 0.5) {
+      if (Math.random() < 0.3) {
+        // Stop for 0.2-0.5 seconds
+        this.botStopDuration = 0.2 + Math.random() * 0.3;
+        this.botStopTimer = 0;
+      }
+    }
     
-    // Determine throttle based on situation
+    let steer = 0;
     let throttle = 0;
-    const aligned = Math.abs(angleToPush) < 0.4; // Within ~23 degrees
     
-    if (shouldReverse) {
-      // Reverse: back away to reposition
-      if (isStuck) {
-        // Bot is stuck: very strong reverse to break free
-        throttle = -0.98; // Maximum reverse to escape stuck state
-      } else if (stuckInCorner) {
-        // Stuck in corner: strong reverse to get away from corner
-        throttle = -0.95; // Very strong reverse when stuck in corner
-      } else if (ballBetweenCarAndWall) {
-        // Stuck near wall: strong reverse to get away
-        throttle = -0.95; // Very strong reverse when stuck
-      } else if (distToBall < 40) {
-        throttle = -0.9; // Strong reverse when too close
+    // If we're in backward mode
+    if (this.botBackwardDuration > 0) {
+      this.botBackwardDuration -= dt;
+      // Go backwards with random steering
+      const randomAngle = (Math.random() - 0.5) * 1.5;
+      const targetAngle = angleWrap(randomAngle - carAngle);
+      steer = clamp(targetAngle * 1.5, -1, 1);
+      throttle = -0.5; // Backwards
+    }
+    // If we're in stop mode
+    else if (this.botStopDuration > 0) {
+      this.botStopDuration -= dt;
+      throttle = 0; // Stop
+      // Still turn a bit randomly
+      const randomAngle = (Math.random() - 0.5) * 0.5;
+      steer = clamp(randomAngle * 1.0, -1, 1);
+    }
+    // Normal behavior: check ball direction and respond accordingly
+    else {
+      // Bot's goal is at the top (y = -fieldH * 0.5), player's goal is at bottom (y = fieldH * 0.5)
+      const botGoal = { x: 0, y: -this.fieldH * 0.5 - 60 };
+      const playerGoal = { x: 0, y: this.fieldH * 0.5 + 60 };
+      
+      // Check which direction the ball is heading
+      const ballVel = ball.velocity;
+      const ballSpeed = Vector.magnitude(ballVel);
+      const ballVelNorm = ballSpeed > 0.1 ? Vector.normalise(ballVel) : { x: 0, y: 0 };
+      
+      // Direction from ball to bot's goal (top)
+      const ballToBotGoal = Vector.sub(botGoal, ball.position);
+      const dirToBotGoal = Vector.normalise(ballToBotGoal);
+      
+      // Direction from ball to player's goal (bottom)
+      const ballToPlayerGoal = Vector.sub(playerGoal, ball.position);
+      const dirToPlayerGoal = Vector.normalise(ballToPlayerGoal);
+      
+      // Check if ball is heading towards bot's goal (defensive situation)
+      const ballHeadingToBotGoal = ballVelNorm.y * dirToBotGoal.y > 0.3 && ballSpeed > 1.0;
+      
+      // Check if ball is heading towards player's goal (offensive situation)
+      const ballHeadingToPlayerGoal = ballVelNorm.y * dirToPlayerGoal.y > 0.3 && ballSpeed > 1.0;
+      
+      if (ballHeadingToBotGoal) {
+        // DEFENSIVE: Ball heading towards bot's goal - go around it to hit it in opposite direction
+        // Position to intercept from the side and push it away from goal
+        const interceptDistance = 100;
+        // Go to the side of the ball (perpendicular to ball's velocity)
+        const perpendicular = { x: -ballVelNorm.y, y: ballVelNorm.x }; // 90 degrees to velocity
+        // Choose side based on which is closer to car
+        const side1 = Vector.add(ball.position, Vector.mult(perpendicular, interceptDistance));
+        const side2 = Vector.add(ball.position, Vector.mult(perpendicular, -interceptDistance));
+        const distToSide1 = Vector.magnitude(Vector.sub(side1, car.position));
+        const distToSide2 = Vector.magnitude(Vector.sub(side2, car.position));
+        const targetPos = distToSide1 < distToSide2 ? side1 : side2;
+        
+        const toTarget = Vector.sub(targetPos, car.position);
+        const angleToTarget = Math.atan2(toTarget.y, toTarget.x);
+        const targetAngle = angleWrap(angleToTarget - carAngle);
+        steer = clamp(targetAngle * 2.2, -1, 1);
+        throttle = 0.7; // Faster when defending
+      } else if (ballHeadingToPlayerGoal) {
+        // OFFENSIVE: Ball heading towards player's goal - go straight at it
+        const dirToBall = distToBall > 0.1 ? Vector.normalise(toBall) : { x: 0, y: 0 };
+        const angleToBall = Math.atan2(dirToBall.y, dirToBall.x);
+        const targetAngle = angleWrap(angleToBall - carAngle);
+        steer = clamp(targetAngle * 2.5, -1, 1);
+        throttle = 0.8; // Fast when attacking
       } else {
-        throttle = aligned ? -0.7 : -0.5; // Moderate reverse
-      }
-    } else {
-      // Forward movement
-      if (distToBall < 80 && ballInFront && aligned) {
-        // Close to ball and aligned: push it!
-        throttle = 0.9;
-      } else if (distToPushPos > 120) {
-        // Far from ideal position: move toward it
-        throttle = aligned ? 1.0 : 0.7;
-      } else if (distToPushPos > 50) {
-        // Medium distance: moderate speed
-        throttle = aligned ? 0.8 : 0.5;
-      } else {
-        // Close to ideal position: gentle movement
-        throttle = aligned ? 0.6 : 0.4;
+        // Ball not clearly heading anywhere - default behavior: push towards bot's goal
+        const pushDistance = 80;
+        const idealPos = Vector.add(ball.position, Vector.mult(dirToBotGoal, -pushDistance));
+        const toIdealPos = Vector.sub(idealPos, car.position);
+        const angleToIdeal = Math.atan2(toIdealPos.y, toIdealPos.x);
+        const targetAngle = angleWrap(angleToIdeal - carAngle);
+        steer = clamp(targetAngle * 2.0, -1, 1);
+        throttle = 0.6; // Moderate speed
       }
     }
-    
-    // Boost: use when we're aligned, far from ball, moving forward, and ball is in front
-    const boost = !shouldReverse && aligned && distToBall > 180 && ballInFront && this.matchTime > 0.8;
     
     // Smooth inputs
-    this.botInput.steer = lerp(this.botInput.steer, steer, clamp(dt * 10, 0, 1));
-    this.botInput.throttle = lerp(this.botInput.throttle, throttle, clamp(dt * 8, 0, 1));
-    this.botInput.boost = boost;
+    this.botInput.steer = lerp(this.botInput.steer, steer, clamp(dt * 8, 0, 1));
+    this.botInput.throttle = lerp(this.botInput.throttle, throttle, clamp(dt * 6, 0, 1));
+    this.botInput.boost = false; // No boost for simple AI
   }
+
 
   private applyCarControls(body: Matter.Body, input: InputState, dt: number, isPlayer: boolean): void {
     // During countdown: allow revving (throttle input) but don't apply forces
@@ -4084,6 +3936,7 @@ class GoalDuelGame {
 
     // Prevent ball from going out of bounds (comprehensive bounds checking)
     this.enforceBallBounds();
+    this.keepBallMoving(); // Ensure ball never stops
 
     // Dynamic camera zoom and follow
     const fixedFieldW = 720;
@@ -4094,10 +3947,10 @@ class GoalDuelGame {
     const maxSpeed = this.settings.carMaxSpeedBoost;
     const speedRatio = Math.min(playerSpeed / maxSpeed, 1.0);
     
-    // In BOT mode: zoom OUT on acceleration (higher speed = zoom out more)
-    // In LOCAL_2P mode: zoom IN on acceleration (higher speed = zoom in more)
+    // Zoom IN when accelerating (higher speed = zoom in more)
+    // Zoom OUT when not accelerating (lower speed = zoom out more)
     const speedZoomAdjust = speedRatio * this.settings.cameraZoomSpeedFactor;
-    const speedZoomFactor = this.matchMode === "BOT" ? -speedZoomAdjust : speedZoomAdjust;
+    const speedZoomFactor = speedZoomAdjust; // Always zoom in on acceleration
     
     // Zoom based on ball distance (closer ball = zoom in more) - small adjustment
     const ballDist = Vector.magnitude(Vector.sub(this.ball.position, this.playerCar.position));
@@ -4270,6 +4123,26 @@ class GoalDuelGame {
     }
   }
 
+  private keepBallMoving(): void {
+    // Ensure ball never stops - always has minimum velocity
+    if (this.state !== "PLAYING") return;
+    
+    const ballVel = this.ball.velocity;
+    const speed = Vector.magnitude(ballVel);
+    const minSpeed = 0.5; // Minimum speed to keep ball sliding
+    
+    if (speed < minSpeed) {
+      // Ball is too slow, give it a random push
+      const randomAngle = Math.random() * Math.PI * 2;
+      const pushSpeed = minSpeed + Math.random() * 0.5; // 0.5 to 1.0 speed
+      const newVel = {
+        x: Math.cos(randomAngle) * pushSpeed,
+        y: Math.sin(randomAngle) * pushSpeed
+      };
+      Body.setVelocity(this.ball, newVel);
+    }
+  }
+
   private enforceBallBounds(): void {
     if (this.state !== "PLAYING") return;
     
@@ -4303,11 +4176,21 @@ class GoalDuelGame {
     // Check X bounds (left/right walls) - only correct if actually out
     if (ballPos.x < leftBound) {
       newX = leftBound;
-      newVelX = -newVelX * 0.8; // Reverse and dampen
+      // Make it slip out - add tangential velocity to prevent sticking
+      // Always add some Y velocity to make it slip along the wall
+      const currentYVel = Math.abs(newVelY);
+      const minSlipSpeed = 0.8; // Minimum speed to slip
+      newVelX = Math.max(currentYVel, minSlipSpeed) * 0.4; // Slip to the right
+      newVelY = newVelY * 0.85 + (Math.random() - 0.5) * 0.3; // Keep Y velocity with randomness
       needsVelocityChange = true;
     } else if (ballPos.x > rightBound) {
       newX = rightBound;
-      newVelX = -newVelX * 0.8; // Reverse and dampen
+      // Make it slip out - add tangential velocity to prevent sticking
+      // Always add some Y velocity to make it slip along the wall
+      const currentYVel = Math.abs(newVelY);
+      const minSlipSpeed = 0.8; // Minimum speed to slip
+      newVelX = -Math.max(currentYVel, minSlipSpeed) * 0.4; // Slip to the left
+      newVelY = newVelY * 0.85 + (Math.random() - 0.5) * 0.3; // Keep Y velocity with randomness
       needsVelocityChange = true;
     }
     
@@ -4325,7 +4208,12 @@ class GoalDuelGame {
       } else {
         // Ball is hitting top wall (not in goal)
         newY = topBound;
-        newVelY = -newVelY * 0.8; // Reverse and dampen
+        // Make it slip out - add tangential velocity to prevent sticking
+        // Always add some X velocity to make it slip along the wall
+        const currentXVel = Math.abs(newVelX);
+        const minSlipSpeed = 0.8; // Minimum speed to slip
+        newVelY = Math.max(currentXVel, minSlipSpeed) * 0.4; // Slip downward
+        newVelX = newVelX * 0.85 + (Math.random() - 0.5) * 0.3; // Keep X velocity with randomness
         needsVelocityChange = true;
       }
     } else if (ballPos.y > bottomBound) {
@@ -4341,7 +4229,12 @@ class GoalDuelGame {
       } else {
         // Ball is hitting bottom wall (not in goal)
         newY = bottomBound;
-        newVelY = -newVelY * 0.8; // Reverse and dampen
+        // Make it slip out - add tangential velocity to prevent sticking
+        // Always add some X velocity to make it slip along the wall
+        const currentXVel = Math.abs(newVelX);
+        const minSlipSpeed = 0.8; // Minimum speed to slip
+        newVelY = -Math.max(currentXVel, minSlipSpeed) * 0.4; // Slip upward
+        newVelX = newVelX * 0.85 + (Math.random() - 0.5) * 0.3; // Keep X velocity with randomness
         needsVelocityChange = true;
       }
     }
