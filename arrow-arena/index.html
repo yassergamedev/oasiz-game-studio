@@ -18,7 +18,7 @@
             overflow: hidden;
             width: 100%;
             height: 100%;
-            background: #4a6fa5;
+            background: #0f3460;
             font-family: 'Fredoka', sans-serif;
             touch-action: none;
             user-select: none;
@@ -29,7 +29,7 @@
             position: relative;
             width: 100%;
             height: 100%;
-            background: #4a6fa5;
+            background: #0f3460;
             overflow: hidden;
         }
 
@@ -537,17 +537,27 @@
             width: 140px;
             height: 140px;
             border-radius: 50%;
-            background: rgba(255, 100, 100, 0.3);
+            background: rgba(255, 100, 100, 0.25);
             border: 4px solid rgba(255, 100, 100, 0.5);
             display: flex;
             align-items: center;
             justify-content: center;
             pointer-events: auto;
             position: relative;
+            transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .aim-area.charging {
+            animation: aimPulse 0.6s ease-in-out infinite;
+        }
+
+        @keyframes aimPulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(255, 100, 100, 0.4); }
+            50% { box-shadow: 0 0 0 10px rgba(255, 100, 100, 0); }
         }
 
         .aim-area-label {
-            font-size: 0.8rem;
+            font-size: 0.75rem;
             color: rgba(255, 255, 255, 0.7);
             text-transform: uppercase;
             letter-spacing: 1px;
@@ -564,6 +574,7 @@
             border-radius: 50%;
             border: 2px solid #fff;
             position: absolute;
+            transition: width 0.1s ease, height 0.1s ease, background 0.15s ease;
         }
 
         /* Mobile adjustments */
@@ -616,6 +627,16 @@
         /* Hide mobile controls on desktop */
         @media (pointer: fine) {
             #mobile-controls {
+                display: none !important;
+            }
+            .mobile-instructions {
+                display: none !important;
+            }
+        }
+
+        /* Hide desktop instructions on mobile */
+        @media (pointer: coarse) {
+            #desktopInstructions {
                 display: none !important;
             }
         }
@@ -676,9 +697,9 @@
         <div id="startScreen" class="overlay">
             <div class="content">
                 <h1 class="game-title">Arrow Arena</h1>
-                <p class="subtitle">Knock them into the pit!</p>
+                <p class="subtitle">Knock them off the sky!</p>
 
-                <div class="instructions">
+                <div class="instructions" id="desktopInstructions">
                     <div class="instruction-row">
                         <span class="key-badge">A/D</span>
                         <span>Move / Aim while charging</span>
@@ -690,6 +711,20 @@
                     <div class="instruction-row">
                         <span class="key-badge">Z</span>
                         <span>Hold to charge, release to fire</span>
+                    </div>
+                </div>
+                <div class="instructions mobile-instructions" id="mobileInstructions">
+                    <div class="instruction-row">
+                        <span class="key-badge">D-PAD</span>
+                        <span>Move left/right, jump</span>
+                    </div>
+                    <div class="instruction-row">
+                        <span class="key-badge">AIM</span>
+                        <span>Hold & drag to aim and charge</span>
+                    </div>
+                    <div class="instruction-row">
+                        <span class="key-badge">TIP</span>
+                        <span>Don't fall off the platforms!</span>
                     </div>
                 </div>
 

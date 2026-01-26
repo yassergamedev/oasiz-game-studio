@@ -1,25 +1,27 @@
 /**
  * ARROW ARENA
  *
- * A 2D physics-based arena game where players control circular characters,
- * use bow and arrow weapons to knock opponents into pits, and try to be
- * the last one standing.
+ * A Brawlhalla-style 2D physics arena game with floating platforms in the sky.
+ * Control circular characters, use bow and arrow weapons to knock opponents
+ * off the platforms. Fall off-screen = death!
  *
  * Controls:
  * - A/D: Move left/right
- * - W: Jump (when grounded)
- * - Z (hold): Enter aiming mode
- * - A/D (while holding Z): Rotate aim
- * - Z (release): Fire arrow
+ * - W: Jump (works anytime)
+ * - Z (hold): Charge arrow, A/D to rotate aim
+ * - Z (release): Fire arrow with accumulated charge
+ *
+ * Mobile:
+ * - D-Pad: Move and jump
+ * - Aim area: Touch, hold to charge, drag to aim, release to fire
  */
 
 // ============= CONFIGURATION =============
 const CONFIG = {
   // Player
   PLAYER_RADIUS: 20,
-  PLAYER_MASS: 1,
   PLAYER_MOVE_SPEED: 1.8,
-  PLAYER_JUMP_FORCE: 10,
+  PLAYER_JUMP_FORCE: 11,
   PLAYER_MAX_VELOCITY: 6,
   PLAYER_GROUND_FRICTION: 0.96,
   PLAYER_AIR_FRICTION: 0.92,
@@ -30,42 +32,58 @@ const CONFIG = {
   TERMINAL_VELOCITY: 12,
 
   // Arrow
-  ARROW_SPEED: 12,
+  ARROW_SPEED: 13,
   ARROW_LENGTH: 25,
   ARROW_WIDTH: 4,
   ARROW_LIFETIME: 3000, // ms
-  ARROW_COOLDOWN: 500, // ms
+  ARROW_COOLDOWN: 350, // ms - faster shooting
   ARROW_GRAVITY: 0.25, // Gravity applied to arrows
   AIM_ROTATION_SPEED: 2.5, // degrees per frame (slower)
 
   // Knockback
-  KNOCKBACK_FORCE: 15,
-  HIT_STUN_DURATION: 100, // ms
+  KNOCKBACK_FORCE: 16, // Base knockback
+  HIT_STUN_DURATION: 120, // ms
 
   // Charge mechanics
   CHARGE_MIN_TIME: 100, // ms - minimum charge for any shot
-  CHARGE_MAX_TIME: 1500, // ms - full charge
+  CHARGE_MAX_TIME: 1300, // ms - full charge
   CHARGE_MIN_SPEED_MULT: 0.5, // arrow speed at min charge
   CHARGE_MAX_SPEED_MULT: 1.8, // arrow speed at full charge
-  CHARGE_MIN_KNOCKBACK_MULT: 0.5,
+  CHARGE_MIN_KNOCKBACK_MULT: 0.6,
   CHARGE_MAX_KNOCKBACK_MULT: 2.0,
+
+  // Mass (affects knockback received)
+  PLAYER_MASS: 1.0, // Normal knockback received
+  BOT_MASS: 0.6, // Bots get LAUNCHED by player arrows
   MOVEMENT_WHILE_CHARGING: 0.4, // 40% movement speed while charging
 
-  // Arena
-  PLATFORM_COLOR: "#3d5a80",
-  PLATFORM_STROKE: "#1d3557",
-  DEATH_ZONE_COLOR: "#c1121f",
-  BACKGROUND_COLOR: "#4a6fa5",
+  // Sky theme colors
+  SKY_TOP: "#1a1a2e",
+  SKY_MIDDLE: "#16213e",
+  SKY_BOTTOM: "#0f3460",
+  CLOUD_COLOR: "rgba(255, 255, 255, 0.08)",
+  MOUNTAIN_COLOR: "#1a1a3e",
+
+  // Platform floating island colors
+  PLATFORM_GRASS_TOP: "#4ade80",
+  PLATFORM_GRASS_DARK: "#22c55e",
+  PLATFORM_EARTH: "#92400e",
+  PLATFORM_EARTH_DARK: "#78350f",
+  PLATFORM_STONE: "#6b7280",
 
   // AI
-  AI_REACTION_TIME: 300, // ms
-  AI_AIM_VARIANCE: 15, // degrees
+  AI_REACTION_TIME: 250, // ms
+  AI_AIM_VARIANCE: 12, // degrees
   AI_SHOOT_CHANCE: 0.02, // per frame when aiming
   BOT_RADIUS: 14, // Bots are smaller than player
-  BOT_SPAWN_INTERVAL: 10000, // Spawn new bot every 10 seconds
+  BOT_SPAWN_INTERVAL: 9000, // Spawn new bot every 9 seconds
 
   // Arena constraints
   MAX_ARENA_WIDTH: 500, // Max playable width for consistent gameplay
+
+  // Fall death thresholds
+  FALL_DEATH_BOTTOM: 100, // pixels below screen
+  FALL_DEATH_SIDES: 80, // pixels off sides
 
   // Colors
   PLAYER_COLORS: [
@@ -106,9 +124,11 @@ interface Player {
   hitStunEnd: number;
   isPlayer: boolean;
   isAlive: boolean;
+  isFalling: boolean; // True when falling off-screen to death
   chargeStartTime: number; // When Z was pressed (0 if not charging)
   // AI properties
   aiTargetX: number;
+  aiTargetPlatformIndex: number; // Which platform AI is trying to reach
   aiLastDecisionTime: number;
   aiWantsToJump: boolean;
   aiWantsToShoot: boolean;
@@ -132,13 +152,19 @@ interface Platform {
   y: number;
   width: number;
   height: number;
+  // Floating island style
+  isMainPlatform?: boolean;
+  hasLeftEdge?: boolean;
+  hasRightEdge?: boolean;
 }
 
-interface DeathZone {
+// Cloud for parallax background
+interface Cloud {
   x: number;
   y: number;
-  width: number;
-  height: number;
+  scale: number;
+  speed: number;
+  opacity: number;
 }
 
 interface Particle {
@@ -213,8 +239,8 @@ const isMobile = window.matchMedia("(pointer: coarse)").matches;
 let players: Player[] = [];
 let arrows: Arrow[] = [];
 let platforms: Platform[] = [];
-let deathZones: DeathZone[] = [];
 let particles: Particle[] = [];
+let clouds: Cloud[] = [];
 
 // Game progress
 let totalKills = 0;
@@ -383,11 +409,24 @@ let arenaLeft = 0;
 let arenaRight = 0;
 let arenaWidth = 0;
 
+function setupClouds(): void {
+  clouds = [];
+  // Create layered clouds for parallax effect
+  for (let i = 0; i < 8; i++) {
+    clouds.push({
+      x: Math.random() * w * 1.5,
+      y: 50 + Math.random() * h * 0.4,
+      scale: 0.5 + Math.random() * 1.0,
+      speed: 0.1 + Math.random() * 0.3,
+      opacity: 0.03 + Math.random() * 0.06,
+    });
+  }
+}
+
 function setupArena(): void {
-  console.log("[setupArena] Setting up arena for dimensions:", w, "x", h);
+  console.log("[setupArena] Setting up Brawlhalla-style floating arena:", w, "x", h);
 
   platforms = [];
-  deathZones = [];
 
   // Constrain arena width for consistent gameplay
   arenaWidth = Math.min(w, CONFIG.MAX_ARENA_WIDTH);
@@ -395,88 +434,64 @@ function setupArena(): void {
   arenaRight = arenaLeft + arenaWidth;
 
   const platformHeight = 20;
-  const groundY = h - 80;
-  const pitWidth = 70; // Fixed pit width for consistency
 
-  // Main ground platform (center, with gaps on sides for pits)
+  // Brawlhalla-style floating platform layout
+  // All platforms float in the sky - fall off = death
+
+  // === BOTTOM TIER (Main Battle Area) ===
+  const bottomY = h - 120;
+
+  // Main center platform (largest, primary fighting area)
   platforms.push({
-    x: arenaLeft + pitWidth,
-    y: groundY,
-    width: arenaWidth - pitWidth * 2,
+    x: arenaLeft + arenaWidth * 0.2,
+    y: bottomY,
+    width: arenaWidth * 0.6,
     height: platformHeight,
+    isMainPlatform: true,
+    hasLeftEdge: true,
+    hasRightEdge: true,
   });
 
-  // Floating platforms
-  const platformY1 = groundY - 100;
-  const platformY2 = groundY - 190;
+  // === MIDDLE TIER (Flanking platforms) ===
+  const midY = bottomY - 90;
 
-  // Left floating platform
+  // Left mid platform
   platforms.push({
-    x: arenaLeft + arenaWidth * 0.08,
-    y: platformY1,
+    x: arenaLeft + arenaWidth * 0.05,
+    y: midY,
     width: arenaWidth * 0.28,
     height: platformHeight,
+    hasLeftEdge: true,
+    hasRightEdge: true,
   });
 
-  // Right floating platform
+  // Right mid platform
   platforms.push({
-    x: arenaLeft + arenaWidth * 0.64,
-    y: platformY1,
+    x: arenaLeft + arenaWidth * 0.67,
+    y: midY,
     width: arenaWidth * 0.28,
     height: platformHeight,
+    hasLeftEdge: true,
+    hasRightEdge: true,
   });
 
-  // Center top platform
+  // === TOP TIER (High ground) ===
+  const topY = midY - 85;
+
+  // Center top platform (smallest, hardest to reach)
   platforms.push({
-    x: arenaLeft + arenaWidth * 0.3,
-    y: platformY2,
-    width: arenaWidth * 0.4,
+    x: arenaLeft + arenaWidth * 0.32,
+    y: topY,
+    width: arenaWidth * 0.36,
     height: platformHeight,
+    hasLeftEdge: true,
+    hasRightEdge: true,
   });
 
-  // Death zones - LEFT PIT
-  deathZones.push({
-    x: arenaLeft - 20,
-    y: groundY,
-    width: pitWidth + 20,
-    height: h - groundY + 50,
-  });
+  // Setup parallax clouds
+  setupClouds();
 
-  // Death zones - RIGHT PIT
-  deathZones.push({
-    x: arenaRight - pitWidth,
-    y: groundY,
-    width: pitWidth + 20,
-    height: h - groundY + 50,
-  });
-
-  // Bottom of screen death zone (fallback)
-  deathZones.push({
-    x: 0,
-    y: h - 10,
-    width: w,
-    height: 30,
-  });
-
-  // Side death zones if arena is narrower than screen (falling off sides)
-  if (arenaLeft > 0) {
-    // Left side of screen
-    deathZones.push({
-      x: -20,
-      y: 0,
-      width: arenaLeft + 20,
-      height: h,
-    });
-    // Right side of screen
-    deathZones.push({
-      x: arenaRight,
-      y: 0,
-      width: w - arenaRight + 20,
-      height: h,
-    });
-  }
-
-  console.log("[setupArena] Arena constrained to", arenaWidth, "px wide, from", arenaLeft, "to", arenaRight);
+  console.log("[setupArena] Floating arena created with", platforms.length, "platforms");
 }
 
 // ============= PLAYER CREATION =============
@@ -495,8 +510,10 @@ function createPlayer(x: number, y: number, colorIndex: number, isPlayer: boolea
     hitStunEnd: 0,
     isPlayer,
     isAlive: true,
+    isFalling: false,
     chargeStartTime: 0,
     aiTargetX: x,
+    aiTargetPlatformIndex: 0,
     aiLastDecisionTime: 0,
     aiWantsToJump: false,
     aiWantsToShoot: false,
@@ -508,37 +525,51 @@ function spawnPlayers(): void {
   players = [];
   botCount = 0;
 
-  const groundY = h - 80 - CONFIG.PLAYER_RADIUS - 5;
+  // Spawn player on the main center platform
+  const mainPlatform = platforms[0]; // Main center platform
+  const spawnY = mainPlatform.y - CONFIG.PLAYER_RADIUS - 5;
+  const centerX = mainPlatform.x + mainPlatform.width / 2;
 
-  // Spawn player in center of arena (safe zone)
-  const centerX = arenaLeft + arenaWidth * 0.5;
-  players.push(createPlayer(centerX, groundY - 50, 0, true));
+  players.push(createPlayer(centerX, spawnY, 0, true));
 
   // Spawn first bot
   spawnNewBot();
 
-  console.log("[spawnPlayers] Spawned player and initial bot");
+  console.log("[spawnPlayers] Spawned player and initial bot on floating platforms");
 }
 
 function spawnNewBot(): void {
-  const groundY = h - 80 - CONFIG.BOT_RADIUS - 5;
-
-  // Random spawn position in arena safe zone (away from pits)
-  const spawnX = arenaLeft + arenaWidth * 0.25 + Math.random() * arenaWidth * 0.5;
-
-  // Spawn above the arena and let them fall
-  const spawnY = groundY - 100 - Math.random() * 50;
+  // Spawn bots from above the screen (Brawlhalla style - they fall in)
+  const spawnX = arenaLeft + arenaWidth * 0.2 + Math.random() * arenaWidth * 0.6;
+  const spawnY = -50 - Math.random() * 30; // Above screen
 
   botCount++;
   const colorIndex = botCount % (CONFIG.PLAYER_COLORS.length - 1) + 1; // Skip player color
 
-  players.push(createPlayer(spawnX, spawnY, colorIndex, false));
+  const bot = createPlayer(spawnX, spawnY, colorIndex, false);
+  players.push(bot);
 
-  // Visual/audio feedback
-  spawnParticles(spawnX, spawnY, CONFIG.PLAYER_COLORS[colorIndex], 10);
-  triggerHaptic("medium");
+  // Spawn warning indicator at top of screen
+  spawnSpawnIndicator(spawnX);
 
-  console.log("[spawnNewBot] Spawned bot #" + botCount);
+  console.log("[spawnNewBot] Bot #" + botCount + " spawning from above at x=" + spawnX.toFixed(0));
+}
+
+// Visual indicator showing where a bot will spawn
+function spawnSpawnIndicator(x: number): void {
+  // Create downward-pointing particles at top of screen
+  for (let i = 0; i < 5; i++) {
+    particles.push({
+      x: x + (Math.random() - 0.5) * 20,
+      y: 20 + Math.random() * 10,
+      vx: (Math.random() - 0.5) * 2,
+      vy: 3 + Math.random() * 2,
+      life: 800,
+      maxLife: 800,
+      size: 6 + Math.random() * 4,
+      color: "#ff6b6b",
+    });
+  }
 }
 
 // ============= PHYSICS =============
@@ -597,77 +628,83 @@ function updatePlayerPhysics(player: Player): void {
     }
   }
 
-  // No wall collision on sides - players can fall off into pits
-  // Just prevent going too far off screen for visual purposes
-  if (player.x < -50 || player.x > w + 50) {
-    // Let death zones handle this
-  }
-
-  // Ceiling collision
-  if (player.y - player.radius < 0) {
-    player.y = player.radius;
-    player.vy = 0;
-  }
+  // No invisible walls - players can fall off anywhere
+  // Death is handled by checkFallDeath() when they go off-screen
 }
 
-function checkDeathZones(player: Player): boolean {
-  for (const zone of deathZones) {
-    if (
-      player.x > zone.x &&
-      player.x < zone.x + zone.width &&
-      player.y > zone.y
-    ) {
-      return true;
+// Check if player has fallen off screen (Brawlhalla-style death)
+function checkFallDeath(player: Player): boolean {
+  // Mark as falling if they're past the actual screen edges
+  if (!player.isFalling) {
+    if (player.y > h + 20 || player.x < -20 || player.x > w + 20) {
+      player.isFalling = true;
     }
   }
-  return false;
+
+  // Create falling trail effect while falling
+  if (player.isFalling && Math.random() < 0.5) {
+    particles.push({
+      x: player.x + (Math.random() - 0.5) * player.radius,
+      y: player.y - player.radius,
+      vx: (Math.random() - 0.5) * 2,
+      vy: -2 - Math.random() * 3,
+      life: 300,
+      maxLife: 300,
+      size: 4 + Math.random() * 4,
+      color: player.color,
+    });
+  }
+
+  // Actually die when WAY off the actual screen (not arena bounds)
+  return (
+    player.y > h + 150 ||
+    player.x < -150 ||
+    player.x > w + 150
+  );
 }
 
-// Player-to-player collision
+// Player-to-player collision (only player vs bots, bots pass through each other)
 function handlePlayerCollisions(): void {
-  for (let i = 0; i < players.length; i++) {
-    const p1 = players[i];
-    if (!p1.isAlive) continue;
+  const human = players.find(p => p.isPlayer && p.isAlive);
+  if (!human) return;
 
-    for (let j = i + 1; j < players.length; j++) {
-      const p2 = players[j];
-      if (!p2.isAlive) continue;
+  for (let j = 0; j < players.length; j++) {
+    const bot = players[j];
+    if (bot.isPlayer || !bot.isAlive) continue;
 
-      const dx = p2.x - p1.x;
-      const dy = p2.y - p1.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      const minDist = p1.radius + p2.radius;
+    const dx = bot.x - human.x;
+    const dy = bot.y - human.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const minDist = human.radius + bot.radius;
 
-      if (dist < minDist && dist > 0) {
-        // Collision! Push players apart
-        const overlap = minDist - dist;
-        const nx = dx / dist;
-        const ny = dy / dist;
+    if (dist < minDist && dist > 0) {
+      // Collision! Push apart
+      const overlap = minDist - dist;
+      const nx = dx / dist;
+      const ny = dy / dist;
 
-        // Push each player away by half the overlap
-        const pushX = nx * overlap * 0.5;
-        const pushY = ny * overlap * 0.5;
+      // Push each away by half the overlap
+      const pushX = nx * overlap * 0.5;
+      const pushY = ny * overlap * 0.5;
 
-        p1.x -= pushX;
-        p1.y -= pushY;
-        p2.x += pushX;
-        p2.y += pushY;
+      human.x -= pushX;
+      human.y -= pushY;
+      bot.x += pushX;
+      bot.y += pushY;
 
-        // Exchange some velocity (bounce off each other)
-        const relVelX = p1.vx - p2.vx;
-        const relVelY = p1.vy - p2.vy;
-        const relVelDotNormal = relVelX * nx + relVelY * ny;
+      // Bounce off each other
+      const relVelX = human.vx - bot.vx;
+      const relVelY = human.vy - bot.vy;
+      const relVelDotNormal = relVelX * nx + relVelY * ny;
 
-        // Only resolve if moving towards each other
-        if (relVelDotNormal > 0) {
-          const bounce = 0.5;
-          const impulse = relVelDotNormal * bounce;
+      if (relVelDotNormal > 0) {
+        const bounce = 0.4;
+        const impulse = relVelDotNormal * bounce;
 
-          p1.vx -= impulse * nx;
-          p1.vy -= impulse * ny;
-          p2.vx += impulse * nx;
-          p2.vy += impulse * ny;
-        }
+        human.vx -= impulse * nx;
+        human.vy -= impulse * ny;
+        bot.vx += impulse * nx;
+        bot.vy += impulse * ny;
       }
     }
   }
@@ -740,16 +777,13 @@ function updateArrows(): void {
     // Update arrow angle to match trajectory
     arrow.angle = Math.atan2(arrow.vy, arrow.vx);
 
-    // Check lifetime
-    if (now - arrow.spawnTime > CONFIG.ARROW_LIFETIME) {
+    // Check lifetime or if fallen way off screen (no invisible walls)
+    if (now - arrow.spawnTime > CONFIG.ARROW_LIFETIME ||
+        arrow.y > h + 200 ||
+        arrow.x < -200 ||
+        arrow.x > w + 200 ||
+        arrow.y < -200) {
       arrow.isActive = false;
-      continue;
-    }
-
-    // Check wall collision
-    if (arrow.x < 0 || arrow.x > w || arrow.y < 0) {
-      arrow.isActive = false;
-      spawnParticles(arrow.x, arrow.y, "#fff", 5);
       continue;
     }
 
@@ -780,10 +814,15 @@ function updateArrows(): void {
         // Hit!
         arrow.isActive = false;
 
-        // Apply knockback (uses arrow's knockback force based on charge)
+        // Player arrows are stronger against bots
+        const isPlayerArrow = arrow.ownerId === 0;
+        const targetMass = player.isPlayer ? CONFIG.PLAYER_MASS : CONFIG.BOT_MASS;
+        const damageBonus = isPlayerArrow && !player.isPlayer ? 1.4 : 1.0; // 40% bonus vs bots
+
         const knockbackAngle = arrow.angle;
-        player.vx += Math.cos(knockbackAngle) * arrow.knockbackForce;
-        player.vy += Math.sin(knockbackAngle) * arrow.knockbackForce;
+        const effectiveKnockback = (arrow.knockbackForce * damageBonus) / targetMass;
+        player.vx += Math.cos(knockbackAngle) * effectiveKnockback;
+        player.vy += Math.sin(knockbackAngle) * effectiveKnockback;
         player.hitStunEnd = now + CONFIG.HIT_STUN_DURATION;
         player.isGrounded = false;
 
@@ -791,10 +830,10 @@ function updateArrows(): void {
         playHitSound();
         const isStrongHit = arrow.knockbackForce > CONFIG.KNOCKBACK_FORCE;
         triggerHaptic(isStrongHit ? "heavy" : "medium");
-        screenShake = isStrongHit ? 12 : 8;
-        spawnParticles(arrow.x, arrow.y, player.color, isStrongHit ? 25 : 15);
+        screenShake = isStrongHit ? 10 : 6;
+        spawnParticles(arrow.x, arrow.y, player.color, isStrongHit ? 20 : 12);
 
-        console.log("[updateArrows] Player", arrow.ownerId, "hit player", j, "with force", arrow.knockbackForce.toFixed(1));
+        console.log("[updateArrows] Hit! Force:", effectiveKnockback.toFixed(1));
         break;
       }
     }
@@ -802,39 +841,86 @@ function updateArrows(): void {
 }
 
 // ============= AI =============
-function isNearDeathZone(x: number): boolean {
-  const safeMargin = 80;
-  // Check if near arena edges (where pits are)
-  return x < arenaLeft + safeMargin || x > arenaRight - safeMargin;
+
+// Find which platform a position is on or above
+function findPlatformUnder(x: number, y: number): number {
+  for (let i = 0; i < platforms.length; i++) {
+    const p = platforms[i];
+    if (x >= p.x - 20 && x <= p.x + p.width + 20 && y <= p.y + 50) {
+      return i;
+    }
+  }
+  return -1;
 }
 
-function getSafeTargetX(currentX: number, desiredX: number): number {
-  const safeMargin = 100;
-  const safeMin = arenaLeft + safeMargin;
-  const safeMax = arenaRight - safeMargin;
-  // Clamp desired position to safe zone within arena
-  return clamp(desiredX, safeMin, safeMax);
+// Check if near platform edge (risk of falling)
+function isNearPlatformEdge(player: Player): { near: boolean; direction: number } {
+  if (!player.isGrounded) return { near: false, direction: 0 };
+
+  for (const p of platforms) {
+    // Check if on this platform
+    if (
+      player.x >= p.x - player.radius &&
+      player.x <= p.x + p.width + player.radius &&
+      player.y >= p.y - player.radius - 10 &&
+      player.y <= p.y + player.radius
+    ) {
+      const distToLeft = player.x - p.x;
+      const distToRight = p.x + p.width - player.x;
+      const edgeThreshold = 30;
+
+      if (distToLeft < edgeThreshold) {
+        return { near: true, direction: 1 }; // Move right
+      }
+      if (distToRight < edgeThreshold) {
+        return { near: true, direction: -1 }; // Move left
+      }
+    }
+  }
+  return { near: false, direction: 0 };
+}
+
+// Find the best platform to navigate to for reaching target
+function findBestPlatformPath(fromX: number, fromY: number, toX: number, toY: number): number {
+  let bestPlatform = 0;
+  let bestScore = Infinity;
+
+  for (let i = 0; i < platforms.length; i++) {
+    const p = platforms[i];
+    const platformCenterX = p.x + p.width / 2;
+    const platformY = p.y;
+
+    // Score based on how well this platform positions us toward target
+    const distToTarget = Math.abs(platformCenterX - toX) + Math.abs(platformY - toY);
+    const distFromCurrent = Math.abs(platformCenterX - fromX) + Math.abs(platformY - fromY);
+
+    // Prefer platforms that are: closer to target, reachable, and at appropriate height
+    let score = distToTarget * 2 + distFromCurrent;
+
+    // Bonus for platforms at similar or lower height than target (easier to navigate)
+    if (platformY >= toY) {
+      score -= 50;
+    }
+
+    if (score < bestScore) {
+      bestScore = score;
+      bestPlatform = i;
+    }
+  }
+
+  return bestPlatform;
 }
 
 function updateAI(player: Player, playerIndex: number): void {
-  if (!player.isAlive || player.isPlayer) return;
+  if (!player.isAlive || player.isPlayer || player.isFalling) return;
 
   const now = Date.now();
   const humanPlayer = players.find(p => p.isPlayer && p.isAlive);
 
-  // EMERGENCY: If near death zone, immediately move to safety
-  if (isNearDeathZone(player.x) && now > player.hitStunEnd) {
-    // Move towards arena center urgently
-    const centerX = arenaLeft + arenaWidth / 2;
-    player.aiTargetX = centerX;
-    const dx = player.aiTargetX - player.x;
-    player.vx += Math.sign(dx) * CONFIG.PLAYER_MOVE_SPEED * 0.5;
-
-    // Jump if grounded to help recover
-    if (player.isGrounded && Math.abs(player.vx) < 2) {
-      player.vy = -CONFIG.PLAYER_JUMP_FORCE;
-      player.isGrounded = false;
-    }
+  // EMERGENCY: If near platform edge, move to safety
+  const edgeCheck = isNearPlatformEdge(player);
+  if (edgeCheck.near && now > player.hitStunEnd) {
+    player.vx += edgeCheck.direction * CONFIG.PLAYER_MOVE_SPEED * 0.6;
     return;
   }
 
@@ -857,48 +943,104 @@ function updateAI(player: Player, playerIndex: number): void {
     }
 
     if (target) {
-      // Decide movement
       const dx = target.x - player.x;
+      const dy = target.y - player.y;
+      const targetDist = Math.sqrt(dx * dx + dy * dy);
 
-      // Move towards target but maintain some distance
-      let desiredX = player.x;
-      if (Math.abs(dx) > 120) {
-        desiredX = player.x + Math.sign(dx) * 80;
-      } else if (Math.abs(dx) < 60) {
-        desiredX = player.x - Math.sign(dx) * 40;
+      // Find which platform we're on and which platform target is on
+      const myPlatformIdx = findPlatformUnder(player.x, player.y);
+      const targetPlatformIdx = findPlatformUnder(target.x, target.y);
+
+      // Platform navigation logic
+      if (myPlatformIdx !== targetPlatformIdx && myPlatformIdx !== -1) {
+        // We're on different platforms - navigate between them
+        player.aiTargetPlatformIndex = findBestPlatformPath(player.x, player.y, target.x, target.y);
+        const targetPlatform = platforms[player.aiTargetPlatformIndex];
+        const platformCenterX = targetPlatform.x + targetPlatform.width / 2;
+
+        // Target the center of the platform we want to reach
+        player.aiTargetX = platformCenterX;
+
+        // Jump to reach higher platforms
+        if (targetPlatform.y < player.y - 30 && player.isGrounded) {
+          // Need to jump up to reach platform
+          const horizontalDist = Math.abs(platformCenterX - player.x);
+          if (horizontalDist < 80) {
+            player.aiWantsToJump = true;
+          }
+        }
+        // Drop down to lower platforms
+        else if (targetPlatform.y > player.y + 50) {
+          // Walk off edge to drop down
+          const myPlatform = platforms[myPlatformIdx];
+          if (platformCenterX < player.x) {
+            player.aiTargetX = myPlatform.x - 10; // Walk off left
+          } else {
+            player.aiTargetX = myPlatform.x + myPlatform.width + 10; // Walk off right
+          }
+        }
+      } else {
+        // Same platform or target is in the air - chase directly
+        let desiredX = player.x;
+        if (Math.abs(dx) > 100) {
+          desiredX = player.x + Math.sign(dx) * 60;
+        } else if (Math.abs(dx) < 50 && targetDist < 150) {
+          // Close enough to shoot, maybe back off a little
+          desiredX = player.x - Math.sign(dx) * 30;
+        }
+
+        // Stay on platform
+        if (myPlatformIdx !== -1) {
+          const currentPlatform = platforms[myPlatformIdx];
+          const safeLeft = currentPlatform.x + 30;
+          const safeRight = currentPlatform.x + currentPlatform.width - 30;
+          player.aiTargetX = clamp(desiredX, safeLeft, safeRight);
+        } else {
+          player.aiTargetX = desiredX;
+        }
+
+        // Jump to dodge or reach target
+        if (player.isGrounded) {
+          if (dy < -50 && Math.abs(dx) < 100) {
+            // Target is above - jump toward them
+            player.aiWantsToJump = Math.random() < 0.15;
+          } else if (Math.random() < 0.05) {
+            // Random jump for unpredictability
+            player.aiWantsToJump = true;
+          }
+        }
       }
 
-      // Keep target position in safe zone (away from pits)
-      player.aiTargetX = getSafeTargetX(player.x, desiredX);
-
-      // Random jump (less frequent)
-      player.aiWantsToJump = Math.random() < 0.08 && player.isGrounded;
-
       // Aim towards target with some variance
-      const targetAngle = Math.atan2(target.y - player.y, target.x - player.x);
+      const targetAngle = Math.atan2(dy, dx);
       const variance = (Math.random() - 0.5) * CONFIG.AI_AIM_VARIANCE * (Math.PI / 180);
       player.aimAngle = targetAngle + variance;
 
-      // Decide to start charging (if not already)
-      if (player.chargeStartTime === 0 && Math.random() < 0.3) {
+      // Decide to start charging (if not already and target is in range)
+      if (player.chargeStartTime === 0 && targetDist < 350 && Math.random() < 0.4) {
         player.chargeStartTime = now;
-        player.aiChargeTime = CONFIG.CHARGE_MIN_TIME + Math.random() * (CONFIG.CHARGE_MAX_TIME - CONFIG.CHARGE_MIN_TIME) * 0.7;
+        // Bots charge faster (40-80% of max charge time)
+        player.aiChargeTime = CONFIG.CHARGE_MIN_TIME + Math.random() * (CONFIG.CHARGE_MAX_TIME - CONFIG.CHARGE_MIN_TIME) * 0.4 + 200;
         player.isAiming = true;
       }
     } else {
-      // No target, wander in safe zone within arena
-      player.aiTargetX = getSafeTargetX(player.x, arenaLeft + arenaWidth * 0.3 + Math.random() * arenaWidth * 0.4);
-      player.aiWantsToJump = Math.random() < 0.05 && player.isGrounded;
-      player.chargeStartTime = 0; // Stop charging if no target
+      // No target, patrol current platform
+      const myPlatformIdx = findPlatformUnder(player.x, player.y);
+      if (myPlatformIdx !== -1) {
+        const platform = platforms[myPlatformIdx];
+        player.aiTargetX = platform.x + 40 + Math.random() * (platform.width - 80);
+      }
+      player.aiWantsToJump = false;
+      player.chargeStartTime = 0;
       player.isAiming = false;
     }
   }
 
   // Execute movement (slower, more controlled, even slower while charging)
-  const moveSpeedMult = player.chargeStartTime > 0 ? 0.5 : 1.0;
+  const moveSpeedMult = player.chargeStartTime > 0 ? 0.4 : 1.0;
   const dx = player.aiTargetX - player.x;
-  if (Math.abs(dx) > 15 && now > player.hitStunEnd) {
-    player.vx += Math.sign(dx) * CONFIG.PLAYER_MOVE_SPEED * 0.2 * moveSpeedMult;
+  if (Math.abs(dx) > 12 && now > player.hitStunEnd) {
+    player.vx += Math.sign(dx) * CONFIG.PLAYER_MOVE_SPEED * 0.25 * moveSpeedMult;
   }
 
   // Execute jump
@@ -1008,67 +1150,184 @@ function handlePlayerInput(): void {
 
 // ============= DRAWING =============
 function drawBackground(): void {
-  // Sky gradient
+  // Deep sky gradient (night/dusk theme)
   const gradient = ctx.createLinearGradient(0, 0, 0, h);
-  gradient.addColorStop(0, "#3a5a80");
-  gradient.addColorStop(1, CONFIG.BACKGROUND_COLOR);
+  gradient.addColorStop(0, CONFIG.SKY_TOP);
+  gradient.addColorStop(0.5, CONFIG.SKY_MIDDLE);
+  gradient.addColorStop(1, CONFIG.SKY_BOTTOM);
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, w, h);
 
-  // Decorative clouds
-  ctx.fillStyle = "rgba(255, 255, 255, 0.1)";
-  for (let i = 0; i < 5; i++) {
-    const x = (i * w / 4 + Date.now() * 0.01) % (w + 200) - 100;
-    const y = 50 + i * 30;
+  // Stars (subtle)
+  ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
+  for (let i = 0; i < 30; i++) {
+    const starX = (i * 73 + 17) % w;
+    const starY = (i * 41 + 13) % (h * 0.4);
+    const starSize = (i % 3) + 1;
     ctx.beginPath();
-    ctx.arc(x, y, 40, 0, Math.PI * 2);
-    ctx.arc(x + 30, y - 10, 30, 0, Math.PI * 2);
-    ctx.arc(x + 60, y, 35, 0, Math.PI * 2);
+    ctx.arc(starX, starY, starSize, 0, Math.PI * 2);
     ctx.fill();
   }
+
+  // Distant mountains silhouette
+  ctx.fillStyle = CONFIG.MOUNTAIN_COLOR;
+  ctx.beginPath();
+  ctx.moveTo(0, h);
+  ctx.lineTo(0, h * 0.75);
+  ctx.lineTo(w * 0.1, h * 0.65);
+  ctx.lineTo(w * 0.2, h * 0.72);
+  ctx.lineTo(w * 0.35, h * 0.58);
+  ctx.lineTo(w * 0.45, h * 0.68);
+  ctx.lineTo(w * 0.55, h * 0.62);
+  ctx.lineTo(w * 0.7, h * 0.7);
+  ctx.lineTo(w * 0.85, h * 0.6);
+  ctx.lineTo(w * 0.95, h * 0.72);
+  ctx.lineTo(w, h * 0.65);
+  ctx.lineTo(w, h);
+  ctx.closePath();
+  ctx.fill();
+
+  // Animated clouds (parallax layers)
+  const time = Date.now();
+  for (const cloud of clouds) {
+    // Update cloud position
+    cloud.x -= cloud.speed;
+    if (cloud.x + 150 * cloud.scale < 0) {
+      cloud.x = w + 100;
+    }
+
+    // Draw cloud
+    ctx.fillStyle = `rgba(255, 255, 255, ${cloud.opacity})`;
+    drawCloud(cloud.x, cloud.y, cloud.scale);
+  }
+
+  // Additional moving cloud layer (faster, lower)
+  ctx.fillStyle = CONFIG.CLOUD_COLOR;
+  for (let i = 0; i < 4; i++) {
+    const x = ((i * w / 3 + time * 0.015) % (w + 300)) - 150;
+    const y = h * 0.5 + i * 40;
+    drawCloud(x, y, 0.8 + (i % 2) * 0.3);
+  }
+}
+
+function drawCloud(x: number, y: number, scale: number): void {
+  ctx.beginPath();
+  ctx.arc(x, y, 35 * scale, 0, Math.PI * 2);
+  ctx.arc(x + 30 * scale, y - 15 * scale, 28 * scale, 0, Math.PI * 2);
+  ctx.arc(x + 55 * scale, y - 5 * scale, 32 * scale, 0, Math.PI * 2);
+  ctx.arc(x + 85 * scale, y, 25 * scale, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 function drawPlatforms(): void {
-  ctx.fillStyle = CONFIG.PLATFORM_COLOR;
-  ctx.strokeStyle = CONFIG.PLATFORM_STROKE;
-  ctx.lineWidth = 4;
-
   for (const platform of platforms) {
-    // Shadow
-    ctx.fillStyle = "rgba(0, 0, 0, 0.2)";
-    ctx.fillRect(platform.x + 4, platform.y + 4, platform.width, platform.height);
+    const x = platform.x;
+    const y = platform.y;
+    const width = platform.width;
+    const height = platform.height;
+    const depth = 25; // Visual depth of floating island
 
-    // Platform
-    ctx.fillStyle = CONFIG.PLATFORM_COLOR;
-    ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
-    ctx.strokeRect(platform.x, platform.y, platform.width, platform.height);
+    // Shadow below platform
+    ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+    ctx.beginPath();
+    ctx.ellipse(x + width / 2, y + height + depth + 15, width * 0.4, 8, 0, 0, Math.PI * 2);
+    ctx.fill();
 
-    // Top highlight
+    // Earth/dirt underside (floating island depth)
+    const earthGradient = ctx.createLinearGradient(x, y + height, x, y + height + depth);
+    earthGradient.addColorStop(0, CONFIG.PLATFORM_EARTH);
+    earthGradient.addColorStop(1, CONFIG.PLATFORM_EARTH_DARK);
+    ctx.fillStyle = earthGradient;
+
+    // Draw rounded bottom of floating island
+    ctx.beginPath();
+    ctx.moveTo(x + 5, y + height);
+    ctx.lineTo(x + width - 5, y + height);
+    ctx.quadraticCurveTo(x + width + 5, y + height + depth * 0.5, x + width * 0.7, y + height + depth);
+    ctx.quadraticCurveTo(x + width * 0.5, y + height + depth + 8, x + width * 0.3, y + height + depth);
+    ctx.quadraticCurveTo(x - 5, y + height + depth * 0.5, x + 5, y + height);
+    ctx.fill();
+
+    // Stone/rock patches on underside
+    ctx.fillStyle = CONFIG.PLATFORM_STONE;
+    ctx.beginPath();
+    ctx.arc(x + width * 0.3, y + height + depth * 0.6, 8, 0, Math.PI * 2);
+    ctx.arc(x + width * 0.6, y + height + depth * 0.4, 6, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Main platform top (grass)
+    const grassGradient = ctx.createLinearGradient(x, y, x, y + height);
+    grassGradient.addColorStop(0, CONFIG.PLATFORM_GRASS_TOP);
+    grassGradient.addColorStop(1, CONFIG.PLATFORM_GRASS_DARK);
+    ctx.fillStyle = grassGradient;
+
+    // Rounded rectangle for platform top
+    const radius = 6;
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.lineTo(x + width - radius, y);
+    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+    ctx.lineTo(x + width, y + height);
+    ctx.lineTo(x, y + height);
+    ctx.lineTo(x, y + radius);
+    ctx.quadraticCurveTo(x, y, x + radius, y);
+    ctx.closePath();
+    ctx.fill();
+
+    // Grass highlight on top
     ctx.fillStyle = "rgba(255, 255, 255, 0.2)";
-    ctx.fillRect(platform.x, platform.y, platform.width, 4);
-  }
-}
+    ctx.fillRect(x + 2, y + 2, width - 4, 4);
 
-function drawDeathZones(): void {
-  ctx.fillStyle = CONFIG.DEATH_ZONE_COLOR;
-
-  for (const zone of deathZones) {
-    // Danger stripes
-    const stripeWidth = 20;
-    for (let x = zone.x; x < zone.x + zone.width; x += stripeWidth * 2) {
-      ctx.fillStyle = CONFIG.DEATH_ZONE_COLOR;
-      ctx.fillRect(x, zone.y, stripeWidth, zone.height);
-      ctx.fillStyle = "#fca311";
-      ctx.fillRect(x + stripeWidth, zone.y, stripeWidth, zone.height);
+    // Grass tufts on top
+    ctx.fillStyle = CONFIG.PLATFORM_GRASS_TOP;
+    const tufts = Math.floor(width / 25);
+    for (let i = 0; i < tufts; i++) {
+      const tx = x + 15 + i * 25 + (i % 2) * 8;
+      const tHeight = 6 + (i % 3) * 3;
+      ctx.beginPath();
+      ctx.moveTo(tx - 3, y);
+      ctx.lineTo(tx, y - tHeight);
+      ctx.lineTo(tx + 3, y);
+      ctx.fill();
     }
+
+    // Small decorative rocks
+    if (platform.isMainPlatform) {
+      ctx.fillStyle = "#9ca3af";
+      ctx.beginPath();
+      ctx.arc(x + 20, y - 2, 4, 0, Math.PI * 2);
+      ctx.arc(x + width - 25, y - 2, 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Platform outline
+    ctx.strokeStyle = "rgba(0, 0, 0, 0.3)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.lineTo(x + width - radius, y);
+    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+    ctx.lineTo(x + width, y + height);
+    ctx.lineTo(x, y + height);
+    ctx.lineTo(x, y + radius);
+    ctx.quadraticCurveTo(x, y, x + radius, y);
+    ctx.closePath();
+    ctx.stroke();
   }
 }
 
-function drawPlayer(player: Player, index: number): void {
+function drawPlayer(player: Player, _index: number): void {
   if (!player.isAlive) return;
 
   ctx.save();
   ctx.translate(player.x, player.y);
+
+  // Falling effect - spin and fade when falling to death
+  if (player.isFalling) {
+    const spinAmount = (Date.now() % 1000) / 1000 * Math.PI * 4;
+    ctx.rotate(spinAmount);
+    ctx.globalAlpha = 0.6;
+  }
 
   // Shadow
   ctx.fillStyle = "rgba(0, 0, 0, 0.2)";
@@ -1269,22 +1528,26 @@ function checkGameState(): void {
   const now = Date.now();
   const humanAlive = players.some(p => p.isPlayer && p.isAlive);
 
-  // Check deaths
+  // Check deaths (falling off screen)
   for (const player of players) {
     if (!player.isAlive) continue;
 
-    if (checkDeathZones(player)) {
+    if (checkFallDeath(player)) {
       player.isAlive = false;
       playDeathSound();
       triggerHaptic("heavy");
-      screenShake = 15;
-      spawnParticles(player.x, player.y, player.color, 30);
+      screenShake = 12;
+
+      // Spawn death particles at the edge where they fell off
+      let deathX = clamp(player.x, 20, w - 20);
+      let deathY = clamp(player.y, 20, h - 20);
+      spawnParticles(deathX, deathY, player.color, 25);
 
       if (!player.isPlayer) {
         totalKills++;
       }
 
-      console.log("[checkGameState] Player died:", player.isPlayer ? "HUMAN" : "BOT");
+      console.log("[checkGameState] Player fell to death:", player.isPlayer ? "HUMAN" : "BOT");
     }
   }
 
@@ -1482,6 +1745,10 @@ function setupInputHandlers(): void {
   setupMobileControls();
 }
 
+// Mobile charge state
+let mobileChargeStartTime = 0;
+let lastHapticPulse = 0;
+
 function setupMobileControls(): void {
   const leftBtn = document.getElementById("leftBtn")!;
   const rightBtn = document.getElementById("rightBtn")!;
@@ -1513,18 +1780,30 @@ function setupMobileControls(): void {
   addButtonHandler(rightBtn, "d");
   addButtonHandler(jumpBtn, "w");
 
-  // Aim area - tap and drag to aim
+  // Aim area - touch and hold to charge, drag to aim, release to fire
   let aimStartX = 0;
   let aimStartY = 0;
 
   aimArea.addEventListener("touchstart", (e) => {
     e.preventDefault();
-    const touch = e.touches[0];
     const rect = aimArea.getBoundingClientRect();
     aimStartX = rect.left + rect.width / 2;
     aimStartY = rect.top + rect.height / 2;
     mobileAiming = true;
+    mobileChargeStartTime = Date.now();
+    lastHapticPulse = 0;
+
+    // Start player charging
+    if (gameState === "PLAYING") {
+      const player = players.find(p => p.isPlayer && p.isAlive);
+      if (player) {
+        player.chargeStartTime = Date.now();
+        player.isAiming = true;
+      }
+    }
+
     triggerHaptic("light");
+    aimArea.classList.add("charging");
   }, { passive: false });
 
   aimArea.addEventListener("touchmove", (e) => {
@@ -1542,25 +1821,96 @@ function setupMobileControls(): void {
     const indicatorX = Math.cos(mobileAimAngle) * dist;
     const indicatorY = Math.sin(mobileAimAngle) * dist;
     aimIndicator.style.transform = `translate(${indicatorX}px, ${indicatorY}px)`;
+
+    // Update player aim angle in real-time
+    if (gameState === "PLAYING") {
+      const player = players.find(p => p.isPlayer && p.isAlive);
+      if (player) {
+        player.aimAngle = mobileAimAngle;
+      }
+    }
+
+    // Haptic feedback pulses as charge builds
+    const chargeTime = Date.now() - mobileChargeStartTime;
+    const chargeLevel = clamp((chargeTime - CONFIG.CHARGE_MIN_TIME) / (CONFIG.CHARGE_MAX_TIME - CONFIG.CHARGE_MIN_TIME), 0, 1);
+
+    // Pulse every 300ms, faster as charge increases
+    const pulseInterval = 400 - chargeLevel * 250;
+    if (chargeTime - lastHapticPulse > pulseInterval && chargeLevel > 0.1) {
+      triggerHaptic(chargeLevel > 0.7 ? "medium" : "light");
+      lastHapticPulse = chargeTime;
+    }
+
+    // Update charge indicator visual (CSS class based on charge level)
+    updateMobileChargeVisual(chargeLevel);
   }, { passive: false });
 
   aimArea.addEventListener("touchend", (e) => {
     e.preventDefault();
     if (mobileAiming && gameState === "PLAYING") {
       const player = players.find(p => p.isPlayer && p.isAlive);
-      if (player) {
+      if (player && player.chargeStartTime > 0) {
         player.aimAngle = mobileAimAngle;
         createArrow(player, 0);
+        player.chargeStartTime = 0;
+        player.isAiming = false;
       }
     }
     mobileAiming = false;
+    mobileChargeStartTime = 0;
     aimIndicator.style.transform = "translate(0, 0)";
+    aimArea.classList.remove("charging");
+    resetMobileChargeVisual();
   }, { passive: false });
 
   aimArea.addEventListener("touchcancel", () => {
     mobileAiming = false;
+    mobileChargeStartTime = 0;
     aimIndicator.style.transform = "translate(0, 0)";
+    aimArea.classList.remove("charging");
+    resetMobileChargeVisual();
+
+    // Cancel player charging
+    if (gameState === "PLAYING") {
+      const player = players.find(p => p.isPlayer && p.isAlive);
+      if (player) {
+        player.chargeStartTime = 0;
+        player.isAiming = false;
+      }
+    }
   });
+}
+
+function updateMobileChargeVisual(chargeLevel: number): void {
+  const aimArea = document.getElementById("aimArea")!;
+  const aimIndicator = document.getElementById("aimIndicator")!;
+
+  // Change border color based on charge
+  if (chargeLevel < 0.3) {
+    aimArea.style.borderColor = "rgba(255, 200, 100, 0.6)";
+    aimIndicator.style.background = "rgba(255, 200, 100, 0.8)";
+  } else if (chargeLevel < 0.7) {
+    aimArea.style.borderColor = "rgba(255, 150, 50, 0.7)";
+    aimIndicator.style.background = "rgba(255, 150, 50, 0.9)";
+  } else {
+    aimArea.style.borderColor = "rgba(255, 80, 80, 0.8)";
+    aimIndicator.style.background = "rgba(255, 80, 80, 1)";
+  }
+
+  // Pulse size based on charge
+  const scale = 1 + chargeLevel * 0.3;
+  aimIndicator.style.width = `${20 * scale}px`;
+  aimIndicator.style.height = `${20 * scale}px`;
+}
+
+function resetMobileChargeVisual(): void {
+  const aimArea = document.getElementById("aimArea")!;
+  const aimIndicator = document.getElementById("aimIndicator")!;
+
+  aimArea.style.borderColor = "";
+  aimIndicator.style.background = "";
+  aimIndicator.style.width = "";
+  aimIndicator.style.height = "";
 }
 
 // ============= RESIZE =============
@@ -1595,9 +1945,9 @@ function gameLoop(timestamp: number): void {
     if (screenShake < 0.5) screenShake = 0;
   }
 
-  // Draw background
+  // Draw background (sky, clouds, mountains)
   drawBackground();
-  drawDeathZones();
+  // Draw floating platforms
   drawPlatforms();
 
   if (gameState === "PLAYING") {
