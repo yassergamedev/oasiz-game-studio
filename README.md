@@ -287,7 +287,7 @@ Easiest way is to just copy env.example directly and change the email to your ac
 
 ```bash
 # Required - get these from the Oasiz team
-OASIZ_UPLOAD_TOKEN=your_upload_token
+OASIZ_UPLOAD_TOKEN=your_upload_token (copy from env.example)
 OASIZ_EMAIL=your-registered-email@example.com
 
 # Optional - defaults to production API
