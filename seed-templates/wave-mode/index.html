@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, minimal-ui">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Wave Mode</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            overflow: hidden;
+            width: 100%;
+            height: 100%;
+            background: #0a0a1a;
+            font-family: 'Arial', sans-serif;
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* UI Overlay */
+        #ui {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 100;
+        }
+
+        #hud {
+            position: absolute;
+            top: 45px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-size: 24px;
+            font-weight: bold;
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.8), 0 0 20px rgba(0, 255, 255, 0.6);
+            pointer-events: none;
+        }
+
+        #distance {
+            font-size: 32px;
+        }
+
+        #highScore {
+            margin-top: 4px;
+            font-size: 18px;
+            opacity: 0.85;
+        }
+
+        #pauseBtn {
+            position: absolute;
+            top: 45px;
+            left: 20px;
+            width: 50px;
+            height: 50px;
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid rgba(255, 255, 255, 0.5);
+            border-radius: 8px;
+            cursor: pointer;
+            pointer-events: auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            transition: all 0.2s;
+        }
+
+        #pauseBtn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: scale(1.1);
+        }
+
+        #pauseBtn:active {
+            transform: scale(0.95);
+        }
+
+        /* Start/Game Over Overlay */
+        .overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 200;
+            pointer-events: auto;
+            transition: opacity 0.3s;
+        }
+
+        .overlay.hidden {
+            opacity: 0;
+            pointer-events: none;
+            visibility: hidden;
+        }
+
+        .overlay-content {
+            text-align: center;
+            color: #fff;
+        }
+
+        .overlay h1 {
+            font-size: 48px;
+            margin-bottom: 20px;
+            text-shadow: 0 0 20px rgba(0, 255, 255, 0.8), 0 0 40px rgba(0, 255, 255, 0.4);
+            background: linear-gradient(45deg, #00ffff, #ffff00);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .overlay p {
+            font-size: 20px;
+            margin-bottom: 30px;
+            opacity: 0.9;
+        }
+
+        .overlay button {
+            padding: 15px 40px;
+            font-size: 24px;
+            background: linear-gradient(45deg, #00ffff, #ffff00);
+            border: none;
+            border-radius: 8px;
+            color: #000;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.5);
+        }
+
+        .overlay button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 30px rgba(0, 255, 255, 0.8);
+        }
+
+        .overlay button:active {
+            transform: scale(0.95);
+        }
+
+        /* Pause Overlay */
+        #pauseOverlay {
+            background: rgba(0, 0, 0, 0.9);
+        }
+
+        #pauseOverlay h1 {
+            font-size: 36px;
+        }
+
+        /* Settings Modal */
+        #settingsModal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 300;
+            opacity: 0;
+            pointer-events: none;
+            visibility: hidden;
+            transition: opacity 0.3s;
+        }
+
+        #settingsModal.visible {
+            opacity: 1;
+            pointer-events: auto;
+            visibility: visible;
+        }
+
+        .settingsCard {
+            background: #1a1a3a;
+            border: 2px solid #ff00ff;
+            border-radius: 12px;
+            padding: 30px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 0 30px rgba(255, 0, 255, 0.5);
+        }
+
+        .settingsHeader {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            border-bottom: 1px solid rgba(255, 0, 255, 0.3);
+            padding-bottom: 15px;
+        }
+
+        .settingsHeader h2 {
+            color: #fff;
+            font-size: 28px;
+            margin: 0;
+        }
+
+        .settingsClose {
+            background: transparent;
+            border: none;
+            color: #fff;
+            font-size: 36px;
+            cursor: pointer;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            transition: background 0.2s;
+        }
+
+        .settingsClose:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .settingsToggle {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            color: #fff;
+        }
+
+        .settingsToggle label {
+            font-size: 18px;
+        }
+
+        .toggleSwitch {
+            width: 60px;
+            height: 30px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 15px;
+            position: relative;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .toggleSwitch.active {
+            background: #00ffff;
+        }
+
+        .toggleSwitch::after {
+            content: '';
+            position: absolute;
+            width: 24px;
+            height: 24px;
+            background: #fff;
+            border-radius: 50%;
+            top: 3px;
+            left: 3px;
+            transition: transform 0.3s;
+        }
+
+        .toggleSwitch.active::after {
+            transform: translateX(30px);
+        }
+
+        .settingsDivider {
+            height: 1px;
+            background: rgba(255, 0, 255, 0.3);
+            margin: 25px 0;
+        }
+
+        .settingsSectionTitle {
+            color: #00ffff;
+            font-size: 16px;
+            margin-bottom: 15px;
+            margin-top: 10px;
+            text-align: left;
+        }
+
+        .settingsSlider {
+            margin-bottom: 25px;
+            color: #fff;
+        }
+
+        .settingsSlider label {
+            display: block;
+            font-size: 14px;
+            margin-bottom: 8px;
+        }
+
+        .settingsSlider input[type="range"] {
+            width: 100%;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        .settingsSlider input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            background: #00ffff;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(0, 255, 255, 0.8);
+        }
+
+        .settingsSlider input[type="range"]::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            background: #00ffff;
+            border-radius: 50%;
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 0 10px rgba(0, 255, 255, 0.8);
+        }
+
+        .settingsSlider span {
+            color: #00ffff;
+            font-weight: bold;
+        }
+
+        #settingsBtn {
+            position: absolute;
+            top: 45px;
+            right: 20px;
+            width: 50px;
+            height: 50px;
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid rgba(255, 255, 255, 0.5);
+            border-radius: 8px;
+            cursor: pointer;
+            pointer-events: auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            transition: all 0.2s;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .iconBtn svg {
+            width: 24px;
+            height: 24px;
+            fill: currentColor;
+        }
+
+        #settingsBtn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: scale(1.1);
+        }
+
+        /* Mobile adjustments */
+        @media (pointer: coarse) {
+            #hud {
+                top: calc(env(safe-area-inset-top) + 120px);
+                left: calc(env(safe-area-inset-left) + 20px);
+                right: calc(env(safe-area-inset-right) + 20px);
+            }
+
+            #pauseBtn {
+                top: calc(env(safe-area-inset-top) + 120px);
+                left: calc(env(safe-area-inset-left) + 20px);
+            }
+
+            #settingsBtn {
+                top: calc(env(safe-area-inset-top) + 120px);
+                right: calc(env(safe-area-inset-right) + 20px);
+            }
+
+            #distance {
+                font-size: 32px;
+            }
+
+            .overlay h1 {
+                font-size: 36px;
+            }
+
+            .overlay p {
+                font-size: 18px;
+            }
+
+            .settingsCard {
+                padding: 20px;
+                max-width: 95%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="canvas"></canvas>
+        
+        <div id="ui">
+            <div id="hud">
+                <div>
+                    <div id="distance">0m</div>
+                    <div id="highScore">Best: 0m</div>
+                </div>
+            </div>
+            <button id="pauseBtn" class="iconBtn hidden" aria-label="Pause">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M7 5h3v14H7V5zm7 0h3v14h-3V5z"></path>
+                </svg>
+            </button>
+            <button id="settingsBtn" class="iconBtn hidden" aria-label="Settings">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.07-.94l2.03-1.58a.5.5 0 0 0 .12-.61l-1.92-3.32a.5.5 0 0 0-.59-.22l-2.39.96c-.5-.38-1.04-.7-1.63-.94l-.36-2.54A.5.5 0 0 0 14.4 2h-4.8a.5.5 0 0 0-.48.41l-.36 2.54c-.59.24-1.13.56-1.63.94l-2.39-.96a.5.5 0 0 0-.59.22L2.24 8.47a.5.5 0 0 0 .12.61l2.03 1.58c-.05.31-.08.63-.08.94s.03.63.08.94l-2.03 1.58a.5.5 0 0 0-.12.61l1.92 3.32c.12.22.37.3.59.22l2.39-.96c.5.38 1.04.7 1.63.94l.36 2.54c.04.24.24.41.48.41h4.8c.24 0 .44-.17.48-.41l.36-2.54c.59-.24 1.13-.56 1.63-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.5.5 0 0 0-.12-.61l-2.03-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"></path>
+                </svg>
+            </button>
+        </div>
+
+        <!-- Settings Sidebar (Always Visible) -->
+        <div id="settingsPanel" class="settingsPanelHidden">
+            <div class="settingsCard">
+                <div class="settingsHeader">
+                    <h2>Settings</h2>
+                    <button class="settingsToggleBtn" id="settingsToggleBtn">◀</button>
+                </div>
+                <div class="settingsContent">
+                    <div class="settingsToggle">
+                        <label>Music</label>
+                        <div class="toggleSwitch active" id="toggleMusic"></div>
+                    </div>
+                    <div class="settingsToggle">
+                        <label>Sound Effects</label>
+                        <div class="toggleSwitch active" id="toggleFx"></div>
+                    </div>
+                    <div class="settingsToggle">
+                        <label>Haptics</label>
+                        <div class="toggleSwitch active" id="toggleHaptics"></div>
+                    </div>
+                    
+                    <div class="settingsDivider"></div>
+                    <h3 class="settingsSectionTitle">Visual Adjustments</h3>
+                    
+                    <div class="settingsSlider">
+                        <label>Wave Collision Radius: <span id="waveRadiusValue">80%</span></label>
+                        <input type="range" id="sliderWaveRadius" min="50" max="120" value="80" step="5">
+                    </div>
+                    
+                    <div class="settingsSlider">
+                        <label>Spike Collision Radius: <span id="spikeRadiusValue">80%</span></label>
+                        <input type="range" id="sliderSpikeRadius" min="50" max="120" value="80" step="5">
+                    </div>
+                    
+                    <div class="settingsSlider">
+                        <label>Wall Collision Margin: <span id="wallMarginValue">0px</span></label>
+                        <input type="range" id="sliderWallMargin" min="-10" max="10" value="0" step="1">
+                    </div>
+                    
+                    <div class="settingsToggle">
+                        <label>Show Collision Bounds</label>
+                        <div class="toggleSwitch" id="toggleShowBounds"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Menu / Start Screen -->
+        <div id="startOverlay" class="overlay">
+            <div class="overlay-content">
+                <h1>WAVE MODE</h1>
+                <p>Hold to go UP • Release to go DOWN</p>
+                <p>Navigate the endless corridor</p>
+                <button id="playBtn">PLAY</button>
+            </div>
+        </div>
+
+        <!-- Game Over Screen -->
+        <div id="gameOverOverlay" class="overlay hidden">
+            <div class="overlay-content">
+                <h1>GAME OVER</h1>
+                <p id="finalDistance">Distance: 0m</p>
+                <p id="newRecord" style="display: none; color: #00ffff; font-weight: bold;">NEW RECORD!</p>
+                <button id="restartBtn">RESTART</button>
+            </div>
+        </div>
+
+        <!-- Pause Screen -->
+        <div id="pauseOverlay" class="overlay hidden">
+            <div class="overlay-content">
+                <h1>PAUSED</h1>
+                <p>Press SPACE or click to resume</p>
+                <button id="resumeBtn">RESUME</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
