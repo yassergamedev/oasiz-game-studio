@@ -1609,7 +1609,7 @@ class GoalDuelGame {
       this.elBtnSettings.addEventListener("click", () => {
         tap();
         // Settings panel temporarily disabled
-       this.showSettings(true);
+        this.showSettings(true);
       });
     }
 
@@ -1738,9 +1738,9 @@ class GoalDuelGame {
       if (this.state === "PLAYING" || this.state === "GOAL") {
         this.elSettingsModal.classList.add("visible");
         this.elSettingsModal.removeAttribute("inert");
-      } else {
-        this.elSettingsModal.classList.remove("visible");
-        this.elSettingsModal.setAttribute("inert", "");
+    } else {
+      this.elSettingsModal.classList.remove("visible");
+      this.elSettingsModal.setAttribute("inert", "");
       }
     }
   }
@@ -2944,7 +2944,7 @@ class GoalDuelGame {
     // Show mobile controls at the beginning of the match (they're inside settings modal, so show the modal container but hide the card)
     this.elSettingsModal.classList.add("visible");
     this.elSettingsModal.removeAttribute("inert");
-    this.elMobileControls.classList.remove("hidden");
+      this.elMobileControls.classList.remove("hidden");
     // Hide the settings card during gameplay
     const settingsCard = this.elSettingsModal.querySelector(".settingsCard");
     if (settingsCard) {
@@ -3378,8 +3378,8 @@ class GoalDuelGame {
     const carAngle = car.angle;
     
     // Calculate distance to ball
-    const toBall = Vector.sub(ball.position, car.position);
-    const distToBall = Vector.magnitude(toBall);
+        const toBall = Vector.sub(ball.position, car.position);
+        const distToBall = Vector.magnitude(toBall);
     
     // Update timers
     this.botBackwardTimer += dt;
@@ -3391,7 +3391,7 @@ class GoalDuelGame {
         // Start going backwards for 0.3-0.6 seconds
         this.botBackwardDuration = 0.3 + Math.random() * 0.3;
         this.botBackwardTimer = 0;
-      } else {
+        } else {
         this.botBackwardTimer = 0; // Reset timer
       }
     }
@@ -4038,13 +4038,13 @@ class GoalDuelGame {
       // LOCAL_2P mode: normal zoom behavior (add small adjustments)
       const baseZoomFactor = this.settings.cameraZoomSpeedFactor;
       const speedZoomAdjust = speedRatio * baseZoomFactor;
-      
-      // Zoom based on ball distance (closer ball = zoom in more) - small adjustment
-      const ballDist = Vector.magnitude(Vector.sub(this.ball.position, this.playerCar.position));
-      const maxDist = Math.sqrt(fixedFieldW * fixedFieldW + fixedFieldH * fixedFieldH);
-      const distRatio = Math.min(ballDist / maxDist, 1.0);
-      const ballZoomAdjust = (1.0 - distRatio) * this.settings.cameraZoomBallFactor;
-      
+    
+    // Zoom based on ball distance (closer ball = zoom in more) - small adjustment
+    const ballDist = Vector.magnitude(Vector.sub(this.ball.position, this.playerCar.position));
+    const maxDist = Math.sqrt(fixedFieldW * fixedFieldW + fixedFieldH * fixedFieldH);
+    const distRatio = Math.min(ballDist / maxDist, 1.0);
+    const ballZoomAdjust = (1.0 - distRatio) * this.settings.cameraZoomBallFactor;
+    
       // Add adjustments (but these are small, so effect is minimal)
       baseZoom = 1.20 + speedZoomAdjust + ballZoomAdjust;
     }
@@ -4974,13 +4974,13 @@ class GoalDuelGame {
       
       // Draw collision bounds visualization (if enabled)
       if (this.settings.showCarBounds) {
-        const actualCarWidth = this.settings.carWidth * this.settings.carBoundsWidth;
-        const actualCarHeight = this.settings.carHeight * this.settings.carBoundsHeight;
+      const actualCarWidth = this.settings.carWidth * this.settings.carBoundsWidth;
+      const actualCarHeight = this.settings.carHeight * this.settings.carBoundsHeight;
         ctx.strokeStyle = "rgba(0, 255, 255, 0.8)"; // Cyan for better visibility
         ctx.lineWidth = 3;
         ctx.setLineDash([6, 4]);
-        ctx.strokeRect(-actualCarWidth * 0.5, -actualCarHeight * 0.5, actualCarWidth, actualCarHeight);
-        ctx.setLineDash([]);
+      ctx.strokeRect(-actualCarWidth * 0.5, -actualCarHeight * 0.5, actualCarWidth, actualCarHeight);
+      ctx.setLineDash([]);
       }
       
       ctx.restore();
@@ -4991,17 +4991,17 @@ class GoalDuelGame {
     
     // Draw collision bounds visualization for fallback car too (if enabled)
     if (this.settings.showCarBounds) {
-      ctx.save();
-      ctx.translate(body.position.x, body.position.y);
-      ctx.rotate(body.angle);
-      const actualCarWidth = this.settings.carWidth * this.settings.carBoundsWidth;
-      const actualCarHeight = this.settings.carHeight * this.settings.carBoundsHeight;
+    ctx.save();
+    ctx.translate(body.position.x, body.position.y);
+    ctx.rotate(body.angle);
+    const actualCarWidth = this.settings.carWidth * this.settings.carBoundsWidth;
+    const actualCarHeight = this.settings.carHeight * this.settings.carBoundsHeight;
       ctx.strokeStyle = "rgba(0, 255, 255, 0.8)"; // Cyan for better visibility
       ctx.lineWidth = 3;
       ctx.setLineDash([6, 4]);
-      ctx.strokeRect(-actualCarWidth * 0.5, -actualCarHeight * 0.5, actualCarWidth, actualCarHeight);
-      ctx.setLineDash([]);
-      ctx.restore();
+    ctx.strokeRect(-actualCarWidth * 0.5, -actualCarHeight * 0.5, actualCarWidth, actualCarHeight);
+    ctx.setLineDash([]);
+    ctx.restore();
     }
   }
 
