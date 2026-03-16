@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>Rise Up</title>
+  <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%; height: 100%; overflow: hidden;
+      background: #87CEEB; font-family: 'Quicksand', sans-serif;
+      color: #333; touch-action: none;
+    }
+    .hidden { display: none !important; }
+
+    #game-wrapper {
+      width: 100vw; height: 100vh;
+      position: relative; overflow: hidden;
+    }
+    #game-canvas { width: 100%; height: 100%; display: block; }
+
+    /* ─── Menu Screen ─── */
+    #menu-screen {
+      position: absolute; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      background: #87CEEB;
+      z-index: 100; transition: opacity 0.4s ease;
+    }
+    #menu-screen.fade-out { opacity: 0; pointer-events: none; }
+
+    .menu-balloon {
+      width: 80px; height: 100px; position: relative; margin-bottom: 20px;
+      animation: menuFloat 3s ease-in-out infinite;
+    }
+    .menu-balloon-body {
+      width: 80px; height: 80px; border-radius: 50%;
+      background: #ffffff;
+      border: 1px solid rgba(0,0,0,0.06);
+    }
+    .menu-balloon-knot {
+      width: 12px; height: 12px; background: #ffffff;
+      border-radius: 0 0 50% 50%; margin: -2px auto 0;
+    }
+    .menu-balloon-string {
+      width: 2px; height: 40px; background: rgba(255,255,255,0.6);
+      margin: 0 auto;
+    }
+    @keyframes menuFloat {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-15px); }
+    }
+
+    #menu-screen h1 {
+      font-size: 3.2rem; font-weight: 800; letter-spacing: 3px;
+      text-transform: uppercase; margin-bottom: 0.3rem;
+      color: #ffffff;
+    }
+    .menu-subtitle {
+      font-size: 1rem; font-weight: 500; opacity: 0.7;
+      margin-bottom: 2.5rem; text-align: center; padding: 0 20px;
+      color: #ffffff;
+    }
+
+    #start-btn {
+      padding: 16px 56px; font-family: 'Quicksand', sans-serif;
+      font-size: 1.2rem; font-weight: 700; color: #87CEEB;
+      background: #fff; border: none; border-radius: 50px;
+      cursor: pointer; letter-spacing: 1px; text-transform: uppercase;
+      transition: all 0.2s ease;
+    }
+    #start-btn:hover { transform: scale(1.05); }
+    #start-btn:active { transform: scale(0.97); }
+
+    .menu-best {
+      margin-top: 1.2rem; font-size: 0.9rem; font-weight: 600; opacity: 0.6;
+      color: #ffffff;
+    }
+
+    /* ─── HUD ─── */
+    #hud {
+      position: absolute; top: 0; left: 0; right: 0;
+      display: flex; justify-content: center; align-items: center;
+      padding-top: 50px; pointer-events: none; z-index: 20;
+    }
+    @media (pointer: coarse) {
+      #hud { padding-top: 125px; }
+    }
+    #score-display {
+      font-size: 2.4rem; font-weight: 800; letter-spacing: 2px;
+      color: #ffffff;
+    }
+
+    /* ─── Game Over ─── */
+    #game-over-screen {
+      position: absolute; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      background: rgba(135, 206, 235, 0.92);
+      z-index: 100; opacity: 0; transition: opacity 0.5s ease;
+      pointer-events: none;
+    }
+    #game-over-screen.visible { opacity: 1; pointer-events: auto; }
+
+    .game-over-title {
+      font-size: 2.2rem; font-weight: 800; letter-spacing: 2px;
+      text-transform: uppercase; margin-bottom: 0.5rem;
+      color: #ffffff;
+    }
+    .game-over-score {
+      font-size: 4rem; font-weight: 800; margin-bottom: 0.3rem;
+      color: #ffffff;
+    }
+    .game-over-best {
+      font-size: 1rem; font-weight: 600; opacity: 0.6; margin-bottom: 2rem;
+      color: #ffffff;
+    }
+    .game-over-new-best {
+      font-size: 0.9rem; font-weight: 700; color: #ffffff;
+      margin-top: -1.5rem; margin-bottom: 1.5rem;
+      text-transform: uppercase; letter-spacing: 1px;
+    }
+
+    #retry-btn {
+      padding: 14px 48px; font-family: 'Quicksand', sans-serif;
+      font-size: 1.1rem; font-weight: 700; color: #87CEEB;
+      background: #ffffff;
+      border: none; border-radius: 50px; cursor: pointer;
+      letter-spacing: 1px; text-transform: uppercase;
+      transition: all 0.2s ease;
+    }
+    #retry-btn:hover { transform: scale(1.05); }
+    #retry-btn:active { transform: scale(0.97); }
+
+    #menu-btn {
+      margin-top: 12px; padding: 10px 32px;
+      font-family: 'Quicksand', sans-serif;
+      font-size: 0.9rem; font-weight: 600; color: #ffffff;
+      background: transparent; border: 2px solid rgba(255,255,255,0.5);
+      border-radius: 50px; cursor: pointer; letter-spacing: 0.5px;
+      transition: all 0.2s ease;
+    }
+    #menu-btn:hover { border-color: #ffffff; color: #fff; }
+
+    /* ─── Settings Button ─── */
+    #settings-btn {
+      position: absolute; top: 45px; right: 16px;
+      width: 44px; height: 44px; border-radius: 50%;
+      background: rgba(255,255,255,0.4); border: none;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      z-index: 50;
+      transition: all 0.2s ease;
+    }
+    @media (pointer: coarse) {
+      #settings-btn { top: 120px; }
+    }
+    #settings-btn:hover { background: rgba(255,255,255,0.6); }
+    #settings-btn svg { width: 22px; height: 22px; fill: rgba(0,0,0,0.3); }
+
+    /* ─── Settings Modal ─── */
+    #settings-modal {
+      position: absolute; top: 95px; right: 16px;
+      width: 200px; padding: 16px;
+      background: #ffffff;
+      border-radius: 16px; border: 1px solid rgba(0,0,0,0.06);
+      z-index: 55; display: none;
+    }
+    @media (pointer: coarse) {
+      #settings-modal { top: 170px; }
+    }
+    #settings-modal.visible { display: block; }
+
+    .settings-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 0; font-size: 0.85rem; font-weight: 600;
+      color: #555;
+    }
+    .settings-row + .settings-row { border-top: 1px solid rgba(0,0,0,0.06); }
+
+    .toggle-btn {
+      width: 44px; height: 26px; border-radius: 13px;
+      background: #ddd; border: none;
+      cursor: pointer; position: relative; transition: background 0.2s;
+    }
+    .toggle-btn.on { background: #87CEEB; }
+    .toggle-btn::after {
+      content: ''; position: absolute; top: 3px; left: 3px;
+      width: 20px; height: 20px; border-radius: 50%;
+      background: #fff; transition: transform 0.2s;
+    }
+    .toggle-btn.on::after { transform: translateX(18px); }
+
+    /* ─── Pause Overlay ─── */
+    #pause-overlay {
+      position: absolute; inset: 0; display: flex;
+      align-items: center; justify-content: center;
+      background: rgba(135, 206, 235, 0.85);
+      z-index: 90; visibility: hidden; opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+    #pause-overlay.visible { visibility: visible; opacity: 1; }
+    .pause-text {
+      font-size: 2.5rem; font-weight: 800; letter-spacing: 3px;
+      text-transform: uppercase; color: #ffffff;
+    }
+  </style>
+</head>
+<body>
+  <div id="game-wrapper">
+    <canvas id="game-canvas"></canvas>
+
+    <!-- Menu Screen -->
+    <div id="menu-screen">
+      <div class="menu-balloon">
+        <div class="menu-balloon-body"></div>
+        <div class="menu-balloon-knot"></div>
+        <div class="menu-balloon-string"></div>
+      </div>
+      <h1>Rise Up</h1>
+      <p class="menu-subtitle">Protect the balloon. Push away obstacles.</p>
+      <button id="start-btn">Play</button>
+      <p class="menu-best" id="menu-best"></p>
+    </div>
+
+    <!-- HUD -->
+    <div id="hud" class="hidden">
+      <div id="score-display">0</div>
+    </div>
+
+    <!-- Game Over -->
+    <div id="game-over-screen">
+      <p class="game-over-title">Game Over</p>
+      <p class="game-over-score" id="go-score">0</p>
+      <p class="game-over-new-best hidden" id="go-new-best">New Best!</p>
+      <p class="game-over-best" id="go-best">Best: 0</p>
+      <button id="retry-btn">Retry</button>
+      <button id="menu-btn">Menu</button>
+    </div>
+
+    <!-- Settings Button -->
+    <button id="settings-btn" class="hidden">
+      <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.48.48 0 00-.48-.41h-3.84a.48.48 0 00-.48.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.74 8.87a.48.48 0 00.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.26.41.48.41h3.84c.24 0 .44-.17.48-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1112 8.4a3.6 3.6 0 010 7.2z"/></svg>
+    </button>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal">
+      <div class="settings-row">
+        <span>Music</span>
+        <button class="toggle-btn on" id="toggle-music"></button>
+      </div>
+      <div class="settings-row">
+        <span>FX</span>
+        <button class="toggle-btn on" id="toggle-fx"></button>
+      </div>
+      <div class="settings-row">
+        <span>Haptics</span>
+        <button class="toggle-btn on" id="toggle-haptics"></button>
+      </div>
+    </div>
+
+    <!-- Pause Overlay -->
+    <div id="pause-overlay">
+      <p class="pause-text">Paused</p>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
