@@ -1,16 +1,15 @@
 import {
   type Vec2,
   type ObstacleShape,
+  type DifficultyTier,
   GRAVITY,
   OBSTACLE_FRICTION,
   OBSTACLE_COLORS,
   WAVE_PATTERNS,
   SPAWN_AHEAD_DISTANCE,
-  SPAWN_INTERVAL_BASE,
-  SPAWN_INTERVAL_MIN,
   DESPAWN_BEHIND_DISTANCE,
   MAX_OBSTACLES,
-  DIFFICULTY_RAMP_TIME,
+  DIFFICULTY_TIERS,
 } from "./constants.ts";
 
 export interface Obstacle {
@@ -75,37 +74,34 @@ export class ObstacleSpawner {
   private obstacles: Obstacle[] = [];
   private spawnTimer = 0;
   private lastSpawnY = 0;
-  private gameTime = 0;
   private screenWidth = 0;
-  private patternIndex = 0;
-  private usedPatterns: Set<number> = new Set();
+  private currentTier: DifficultyTier = DIFFICULTY_TIERS[0];
 
   getObstacles(): Obstacle[] {
     return this.obstacles;
+  }
+
+  getCurrentTier(): DifficultyTier {
+    return this.currentTier;
   }
 
   reset(screenWidth: number, balloonY: number): void {
     this.obstacles = [];
     this.spawnTimer = 0;
     this.lastSpawnY = balloonY - SPAWN_AHEAD_DISTANCE;
-    this.gameTime = 0;
     this.screenWidth = screenWidth;
-    this.patternIndex = 0;
-    this.usedPatterns.clear();
+    this.currentTier = DIFFICULTY_TIERS[0];
     nextId = 0;
   }
 
-  update(dt: number, cameraY: number, balloonY: number): void {
-    this.gameTime += dt;
+  update(dt: number, cameraY: number, balloonY: number, score: number): void {
     this.screenWidth = window.innerWidth;
-
-    const difficulty = Math.min(1, this.gameTime / DIFFICULTY_RAMP_TIME);
-    const spawnInterval = SPAWN_INTERVAL_BASE - (SPAWN_INTERVAL_BASE - SPAWN_INTERVAL_MIN) * difficulty;
+    this.currentTier = this.getTierForScore(score);
 
     this.spawnTimer += dt;
-    if (this.spawnTimer >= spawnInterval && this.obstacles.length < MAX_OBSTACLES) {
+    if (this.spawnTimer >= this.currentTier.spawnInterval && this.obstacles.length < MAX_OBSTACLES) {
       this.spawnTimer = 0;
-      this.spawnWave(balloonY, difficulty);
+      this.spawnWave(balloonY);
     }
 
     for (const obs of this.obstacles) {
@@ -116,25 +112,38 @@ export class ObstacleSpawner {
     this.obstacles = this.obstacles.filter((obs) => obs.pos.y < despawnY);
   }
 
-  private spawnWave(balloonY: number, difficulty: number): void {
-    const spawnY = balloonY - SPAWN_AHEAD_DISTANCE;
+  private getTierForScore(score: number): DifficultyTier {
+    let tier = DIFFICULTY_TIERS[0];
+    for (const t of DIFFICULTY_TIERS) {
+      if (score >= t.minScore) tier = t;
+      else break;
+    }
+    return tier;
+  }
 
-    const availablePatterns = this.getAvailablePatterns(difficulty);
-    const pattern = availablePatterns[Math.floor(Math.random() * availablePatterns.length)];
+  private spawnWave(balloonY: number): void {
+    const spawnY = balloonY - SPAWN_AHEAD_DISTANCE;
+    const tier = this.currentTier;
+
+    const end = Math.min(tier.patternEnd, WAVE_PATTERNS.length);
+    const start = Math.min(tier.patternStart, end);
+    const available = WAVE_PATTERNS.slice(start, end);
+    if (available.length === 0) return;
+
+    const pattern = available[Math.floor(Math.random() * available.length)];
 
     for (const def of pattern.obstacles) {
       const x = def.xRatio * this.screenWidth;
       const y = spawnY + def.yOffset;
 
-      const scaleFactor = 1 + difficulty * 0.3;
-      const w = def.width * scaleFactor;
-      const h = def.height * scaleFactor;
-      const r = def.radius * scaleFactor;
-      const mass = def.mass * (1 + difficulty * 0.5);
+      const w = def.width * tier.scaleFactor;
+      const h = def.height * tier.scaleFactor;
+      const r = def.radius * tier.scaleFactor;
+      const mass = def.mass * tier.massMultiplier;
 
-      const vx = (def.vx || 0) * (1 + difficulty * 0.5);
+      const vx = (def.vx || 0) * tier.speedMultiplier;
       const vy = (def.vy || 0);
-      const angVel = (def.angularVel || 0) * (1 + difficulty * 0.3);
+      const angVel = (def.angularVel || 0) * tier.speedMultiplier;
 
       this.obstacles.push(
         createObstacle(def.shape, x, y, w, h, r, mass, vx, vy, angVel),
@@ -142,14 +151,5 @@ export class ObstacleSpawner {
     }
 
     this.lastSpawnY = spawnY;
-    this.patternIndex++;
-  }
-
-  private getAvailablePatterns(difficulty: number) {
-    const maxIdx = Math.min(
-      WAVE_PATTERNS.length,
-      Math.floor(3 + difficulty * (WAVE_PATTERNS.length - 3)),
-    );
-    return WAVE_PATTERNS.slice(0, maxIdx);
   }
 }

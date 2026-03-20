@@ -104,22 +104,12 @@ export class Renderer {
     ctx.globalAlpha = 1;
   }
 
-  drawShield(shield: ShieldState, balloon: BalloonState, camera: CameraState): void {
+  drawShield(shield: ShieldState, _balloon: BalloonState, camera: CameraState): void {
     const ctx = this.ctx;
     const screenY = worldToScreen(shield.pos.y, camera.y);
-    const balloonScreenY = worldToScreen(balloon.pos.y, camera.y);
     const x = shield.pos.x;
     const y = screenY;
     const r = shield.radius;
-
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([4, 4]);
-    ctx.beginPath();
-    ctx.moveTo(balloon.pos.x, balloonScreenY);
-    ctx.lineTo(x, y);
-    ctx.stroke();
-    ctx.setLineDash([]);
 
     ctx.fillStyle = "#ffffff";
     ctx.beginPath();
@@ -192,6 +182,67 @@ export class Renderer {
       ctx.lineTo(hw, hh);
       ctx.closePath();
       ctx.fill();
+    } else if (obs.shape === "diamond") {
+      const hw = obs.width / 2;
+      const hh = obs.height / 2;
+      ctx.beginPath();
+      ctx.moveTo(0, -hh);
+      ctx.lineTo(hw, 0);
+      ctx.lineTo(0, hh);
+      ctx.lineTo(-hw, 0);
+      ctx.closePath();
+      ctx.fill();
+    } else if (obs.shape === "hexagon") {
+      const r = obs.radius;
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const angle = (Math.PI / 3) * i - Math.PI / 2;
+        const px = Math.cos(angle) * r;
+        const py = Math.sin(angle) * r;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+    } else if (obs.shape === "plus") {
+      const hw = obs.width / 2;
+      const hh = obs.height / 2;
+      const armW = obs.width * 0.175;
+      const armH = obs.height * 0.175;
+      ctx.beginPath();
+      ctx.moveTo(-armW, -hh);
+      ctx.lineTo(armW, -hh);
+      ctx.lineTo(armW, -armH);
+      ctx.lineTo(hw, -armH);
+      ctx.lineTo(hw, armH);
+      ctx.lineTo(armW, armH);
+      ctx.lineTo(armW, hh);
+      ctx.lineTo(-armW, hh);
+      ctx.lineTo(-armW, armH);
+      ctx.lineTo(-hw, armH);
+      ctx.lineTo(-hw, -armH);
+      ctx.lineTo(-armW, -armH);
+      ctx.closePath();
+      ctx.fill();
+    } else if (obs.shape === "pill") {
+      const isHoriz = obs.width >= obs.height;
+      const halfLen = Math.max(obs.width, obs.height) / 2;
+      const capR = Math.min(obs.width, obs.height) / 2;
+      ctx.beginPath();
+      if (isHoriz) {
+        ctx.moveTo(-halfLen + capR, -capR);
+        ctx.lineTo(halfLen - capR, -capR);
+        ctx.arc(halfLen - capR, 0, capR, -Math.PI / 2, Math.PI / 2);
+        ctx.lineTo(-halfLen + capR, capR);
+        ctx.arc(-halfLen + capR, 0, capR, Math.PI / 2, -Math.PI / 2);
+      } else {
+        ctx.moveTo(-capR, -halfLen + capR);
+        ctx.arc(0, -halfLen + capR, capR, Math.PI, 0);
+        ctx.lineTo(capR, halfLen - capR);
+        ctx.arc(0, halfLen - capR, capR, 0, Math.PI);
+      }
+      ctx.closePath();
+      ctx.fill();
     }
   }
 
@@ -225,6 +276,67 @@ export class Renderer {
       ctx.moveTo(0, -hh);
       ctx.lineTo(-hw, hh);
       ctx.lineTo(hw, hh);
+      ctx.closePath();
+      ctx.stroke();
+    } else if (obs.shape === "diamond") {
+      const hw = obs.width / 2;
+      const hh = obs.height / 2;
+      ctx.beginPath();
+      ctx.moveTo(0, -hh);
+      ctx.lineTo(hw, 0);
+      ctx.lineTo(0, hh);
+      ctx.lineTo(-hw, 0);
+      ctx.closePath();
+      ctx.stroke();
+    } else if (obs.shape === "hexagon") {
+      const r = obs.radius;
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const angle = (Math.PI / 3) * i - Math.PI / 2;
+        const px = Math.cos(angle) * r;
+        const py = Math.sin(angle) * r;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.stroke();
+    } else if (obs.shape === "plus") {
+      const hw = obs.width / 2;
+      const hh = obs.height / 2;
+      const armW = obs.width * 0.175;
+      const armH = obs.height * 0.175;
+      ctx.beginPath();
+      ctx.moveTo(-armW, -hh);
+      ctx.lineTo(armW, -hh);
+      ctx.lineTo(armW, -armH);
+      ctx.lineTo(hw, -armH);
+      ctx.lineTo(hw, armH);
+      ctx.lineTo(armW, armH);
+      ctx.lineTo(armW, hh);
+      ctx.lineTo(-armW, hh);
+      ctx.lineTo(-armW, armH);
+      ctx.lineTo(-hw, armH);
+      ctx.lineTo(-hw, -armH);
+      ctx.lineTo(-armW, -armH);
+      ctx.closePath();
+      ctx.stroke();
+    } else if (obs.shape === "pill") {
+      const isHoriz = obs.width >= obs.height;
+      const halfLen = Math.max(obs.width, obs.height) / 2;
+      const capR = Math.min(obs.width, obs.height) / 2;
+      ctx.beginPath();
+      if (isHoriz) {
+        ctx.moveTo(-halfLen + capR, -capR);
+        ctx.lineTo(halfLen - capR, -capR);
+        ctx.arc(halfLen - capR, 0, capR, -Math.PI / 2, Math.PI / 2);
+        ctx.lineTo(-halfLen + capR, capR);
+        ctx.arc(-halfLen + capR, 0, capR, Math.PI / 2, -Math.PI / 2);
+      } else {
+        ctx.moveTo(-capR, -halfLen + capR);
+        ctx.arc(0, -halfLen + capR, capR, Math.PI, 0);
+        ctx.lineTo(capR, halfLen - capR);
+        ctx.arc(0, halfLen - capR, capR, 0, Math.PI);
+      }
       ctx.closePath();
       ctx.stroke();
     }

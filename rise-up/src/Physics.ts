@@ -65,15 +65,15 @@ export function circleVsRect(circle: CircleBody, rect: RectBody): CollisionResul
     const overlapX = hw - Math.abs(localX);
     const overlapY = hh - Math.abs(localY);
     if (overlapX < overlapY) {
-      normalLocalX = localX > 0 ? 1 : -1;
+      normalLocalX = localX > 0 ? -1 : 1;
       normalLocalY = 0;
     } else {
       normalLocalX = 0;
-      normalLocalY = localY > 0 ? 1 : -1;
+      normalLocalY = localY > 0 ? -1 : 1;
     }
   } else {
-    normalLocalX = diffX / dist;
-    normalLocalY = diffY / dist;
+    normalLocalX = -diffX / dist;
+    normalLocalY = -diffY / dist;
   }
 
   const cosR = Math.cos(rect.angle);
@@ -124,9 +124,9 @@ export function circleVsTriangle(circle: CircleBody, triPos: Vec2, triWidth: num
 
   let normalLocal: Vec2;
   if (closestDist < 0.001) {
-    normalLocal = { x: 0, y: -1 };
+    normalLocal = { x: 0, y: 1 };
   } else {
-    normalLocal = vec2Normalize(vec2Sub({ x: localX, y: localY }, closestPoint));
+    normalLocal = vec2Normalize(vec2Sub(closestPoint, { x: localX, y: localY }));
   }
 
   const cosR = Math.cos(triAngle);
@@ -140,6 +140,141 @@ export function circleVsTriangle(circle: CircleBody, triPos: Vec2, triWidth: num
     },
     depth: circle.radius - closestDist,
   };
+}
+
+export function circleVsPolygon(circle: CircleBody, polyPos: Vec2, verts: Vec2[], polyAngle: number): CollisionResult {
+  const cos = Math.cos(-polyAngle);
+  const sin = Math.sin(-polyAngle);
+  const dx = circle.pos.x - polyPos.x;
+  const dy = circle.pos.y - polyPos.y;
+  const localX = dx * cos - dy * sin;
+  const localY = dx * sin + dy * cos;
+
+  let closestDist = Infinity;
+  let closestPoint = { x: 0, y: 0 };
+  const n = verts.length;
+
+  for (let i = 0; i < n; i++) {
+    const a = verts[i];
+    const b = verts[(i + 1) % n];
+    const cp = closestPointOnSegment({ x: localX, y: localY }, a, b);
+    const d = vec2Len(vec2Sub({ x: localX, y: localY }, cp));
+    if (d < closestDist) {
+      closestDist = d;
+      closestPoint = cp;
+    }
+  }
+
+  if (closestDist >= circle.radius) {
+    return { hit: false, normal: { x: 0, y: 0 }, depth: 0 };
+  }
+
+  let normalLocal: Vec2;
+  if (closestDist < 0.001) {
+    normalLocal = vec2Normalize(vec2Sub(polyPos, circle.pos));
+    const cosR = Math.cos(polyAngle);
+    const sinR = Math.sin(polyAngle);
+    return {
+      hit: true,
+      normal: { x: normalLocal.x, y: normalLocal.y },
+      depth: circle.radius,
+    };
+  } else {
+    normalLocal = vec2Normalize(vec2Sub(closestPoint, { x: localX, y: localY }));
+  }
+
+  const cosR = Math.cos(polyAngle);
+  const sinR = Math.sin(polyAngle);
+
+  return {
+    hit: true,
+    normal: {
+      x: normalLocal.x * cosR - normalLocal.y * sinR,
+      y: normalLocal.x * sinR + normalLocal.y * cosR,
+    },
+    depth: circle.radius - closestDist,
+  };
+}
+
+export function circleVsPill(circle: CircleBody, pillPos: Vec2, pillWidth: number, pillHeight: number, pillAngle: number): CollisionResult {
+  const cos = Math.cos(-pillAngle);
+  const sin = Math.sin(-pillAngle);
+  const dx = circle.pos.x - pillPos.x;
+  const dy = circle.pos.y - pillPos.y;
+  const localX = dx * cos - dy * sin;
+  const localY = dx * sin + dy * cos;
+
+  const halfLen = Math.max(pillWidth, pillHeight) / 2;
+  const capRadius = Math.min(pillWidth, pillHeight) / 2;
+  const isHorizontal = pillWidth >= pillHeight;
+
+  let nearestX: number, nearestY: number;
+  if (isHorizontal) {
+    const clamped = Math.max(-halfLen + capRadius, Math.min(halfLen - capRadius, localX));
+    nearestX = clamped;
+    nearestY = 0;
+  } else {
+    const clamped = Math.max(-halfLen + capRadius, Math.min(halfLen - capRadius, localY));
+    nearestX = 0;
+    nearestY = clamped;
+  }
+
+  const diffX = localX - nearestX;
+  const diffY = localY - nearestY;
+  const dist = Math.sqrt(diffX * diffX + diffY * diffY);
+  const minDist = circle.radius + capRadius;
+
+  if (dist >= minDist || dist < 0.001) {
+    return { hit: false, normal: { x: 0, y: 0 }, depth: 0 };
+  }
+
+  const nlx = -diffX / dist;
+  const nly = -diffY / dist;
+  const cosR = Math.cos(pillAngle);
+  const sinR = Math.sin(pillAngle);
+
+  return {
+    hit: true,
+    normal: {
+      x: nlx * cosR - nly * sinR,
+      y: nlx * sinR + nly * cosR,
+    },
+    depth: minDist - dist,
+  };
+}
+
+export function circleVsPlus(circle: CircleBody, plusPos: Vec2, plusWidth: number, plusHeight: number, plusAngle: number): CollisionResult {
+  const armW = plusWidth * 0.35;
+  const hRect = { pos: plusPos, vel: { x: 0, y: 0 }, width: plusWidth, height: armW, angle: plusAngle, mass: 1 };
+  const vRect = { pos: plusPos, vel: { x: 0, y: 0 }, width: armW, height: plusHeight, angle: plusAngle, mass: 1 };
+
+  const r1 = circleVsRect(circle, hRect);
+  const r2 = circleVsRect(circle, vRect);
+
+  if (r1.hit && r2.hit) {
+    return r1.depth > r2.depth ? r1 : r2;
+  }
+  if (r1.hit) return r1;
+  if (r2.hit) return r2;
+  return { hit: false, normal: { x: 0, y: 0 }, depth: 0 };
+}
+
+export function getDiamondVerts(hw: number, hh: number): Vec2[] {
+  return [
+    { x: 0, y: -hh },
+    { x: hw, y: 0 },
+    { x: 0, y: hh },
+    { x: -hw, y: 0 },
+  ];
+}
+
+export function getHexagonVerts(r: number): Vec2[] {
+  const verts: Vec2[] = [];
+  for (let i = 0; i < 6; i++) {
+    const angle = (Math.PI / 3) * i - Math.PI / 2;
+    verts.push({ x: Math.cos(angle) * r, y: Math.sin(angle) * r });
+  }
+  return verts;
 }
 
 function closestPointOnSegment(p: Vec2, a: Vec2, b: Vec2): Vec2 {

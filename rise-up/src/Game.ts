@@ -4,7 +4,6 @@ import {
   type GameState as AppGameState,
   type Vec2,
   SHIELD_PUSH_FORCE,
-  SHIELD_TETHER_LENGTH,
   SCORE_ANCHORS,
 } from "./constants.ts";
 import { type BalloonState, createBalloon, updateBalloon, popBalloon, getScore } from "./Balloon.ts";
@@ -20,6 +19,11 @@ import {
   circleVsCircle,
   circleVsRect,
   circleVsTriangle,
+  circleVsPolygon,
+  circleVsPill,
+  circleVsPlus,
+  getDiamondVerts,
+  getHexagonVerts,
   resolveShieldObstacleCollision,
 } from "./Physics.ts";
 
@@ -182,16 +186,15 @@ export class Game {
 
   private update(dt: number): void {
     updateBalloon(this.balloon, dt);
-    updateShield(this.shield, dt);
-    this.enforceTether();
-
     updateCamera(this.camera, this.balloon.pos.y, dt);
 
-    this.spawner.update(dt, this.camera.y + this.renderer.height, this.balloon.pos.y);
-
-    this.resolveCollisions();
+    refreshShieldTarget(this.shield, this.camera);
+    updateShield(this.shield, dt);
 
     this.score = getScore(this.balloon, this.startY);
+    this.spawner.update(dt, this.camera.y + this.renderer.height, this.balloon.pos.y, this.score);
+
+    this.resolveCollisions();
     this.hud.updateScore(this.score);
 
     this.particles.update(dt);
@@ -207,23 +210,6 @@ export class Game {
       this.hud.hide();
       document.getElementById("settings-btn")?.classList.add("hidden");
       this.menu.showGameOver(this.score, this.bestScore, this.score >= this.bestScore && this.score > 0);
-    }
-  }
-
-  private enforceTether(): void {
-    const dx = this.shield.pos.x - this.balloon.pos.x;
-    const dy = this.shield.pos.y - this.balloon.pos.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-
-    if (dist > SHIELD_TETHER_LENGTH) {
-      const ratio = SHIELD_TETHER_LENGTH / dist;
-      this.shield.pos.x = this.balloon.pos.x + dx * ratio;
-      this.shield.pos.y = this.balloon.pos.y + dy * ratio;
-
-      if (!this.shield.active) {
-        this.shield.targetPos.x = this.shield.pos.x;
-        this.shield.targetPos.y = this.shield.pos.y;
-      }
     }
   }
 
@@ -287,7 +273,10 @@ export class Game {
 
     const w = this.renderer.width;
     for (const obs of obstacles) {
-      const halfW = obs.shape === "circle" ? obs.radius : obs.width / 2;
+      let halfW: number;
+      if (obs.shape === "circle" || obs.shape === "hexagon") halfW = obs.radius;
+      else if (obs.shape === "pill") halfW = Math.max(obs.width, obs.height) / 2;
+      else halfW = obs.width / 2;
       if (obs.pos.x - halfW < 0) {
         obs.pos.x = halfW;
         obs.vel.x = Math.abs(obs.vel.x) * 0.5;
@@ -301,7 +290,11 @@ export class Game {
   private testCollision(circlePos: Vec2, circleRadius: number, obs: Obstacle) {
     const circleBody = { pos: circlePos, vel: { x: 0, y: 0 }, radius: circleRadius, mass: 1 };
 
-    if (obs.shape === "circle") {
+    if (obs.shape === "circle" || obs.shape === "hexagon") {
+      if (obs.shape === "hexagon") {
+        const verts = getHexagonVerts(obs.radius);
+        return circleVsPolygon(circleBody, obs.pos, verts, obs.angle);
+      }
       const obsBody = { pos: obs.pos, vel: obs.vel, radius: obs.radius, mass: obs.mass };
       return circleVsCircle(circleBody, obsBody);
     } else if (obs.shape === "rect") {
@@ -314,9 +307,17 @@ export class Game {
         mass: obs.mass,
       };
       return circleVsRect(circleBody, rectBody);
-    } else {
+    } else if (obs.shape === "triangle") {
       return circleVsTriangle(circleBody, obs.pos, obs.width, obs.height, obs.angle);
+    } else if (obs.shape === "diamond") {
+      const verts = getDiamondVerts(obs.width / 2, obs.height / 2);
+      return circleVsPolygon(circleBody, obs.pos, verts, obs.angle);
+    } else if (obs.shape === "pill") {
+      return circleVsPill(circleBody, obs.pos, obs.width, obs.height, obs.angle);
+    } else if (obs.shape === "plus") {
+      return circleVsPlus(circleBody, obs.pos, obs.width, obs.height, obs.angle);
     }
+    return { hit: false, normal: { x: 0, y: 0 }, depth: 0 };
   }
 
   // ─── Rendering ───

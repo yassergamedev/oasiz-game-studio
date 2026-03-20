@@ -57,7 +57,7 @@ export const SHIELD_PUSH_FORCE = 800;
 export const SHIELD_TETHER_LENGTH = 180;
 
 // ─── Obstacle Shapes ───
-export type ObstacleShape = "circle" | "rect" | "triangle";
+export type ObstacleShape = "circle" | "rect" | "triangle" | "diamond" | "hexagon" | "plus" | "pill";
 
 export interface ObstacleDef {
   shape: ObstacleShape;
@@ -75,13 +75,73 @@ export const OBSTACLE_RESTITUTION = 0.4;
 
 // ─── Spawning ───
 export const SPAWN_AHEAD_DISTANCE = 600;
-export const SPAWN_INTERVAL_BASE = 1.2;
-export const SPAWN_INTERVAL_MIN = 0.4;
 export const DESPAWN_BEHIND_DISTANCE = 400;
-export const MAX_OBSTACLES = 40;
+export const MAX_OBSTACLES = 60;
 
-// ─── Difficulty ───
-export const DIFFICULTY_RAMP_TIME = 120;
+// ─── Difficulty Tiers (score-based) ───
+export interface DifficultyTier {
+  name: string;
+  minScore: number;
+  spawnInterval: number;
+  patternStart: number;
+  patternEnd: number;
+  scaleFactor: number;
+  massMultiplier: number;
+  speedMultiplier: number;
+}
+
+export const DIFFICULTY_TIERS: DifficultyTier[] = [
+  {
+    name: "easy",
+    minScore: 0,
+    spawnInterval: 1.4,
+    patternStart: 0,
+    patternEnd: 5,
+    scaleFactor: 1.0,
+    massMultiplier: 1.0,
+    speedMultiplier: 1.0,
+  },
+  {
+    name: "medium",
+    minScore: 10,
+    spawnInterval: 1.1,
+    patternStart: 0,
+    patternEnd: 15,
+    scaleFactor: 1.05,
+    massMultiplier: 1.1,
+    speedMultiplier: 1.1,
+  },
+  {
+    name: "hard",
+    minScore: 20,
+    spawnInterval: 0.85,
+    patternStart: 5,
+    patternEnd: 30,
+    scaleFactor: 1.15,
+    massMultiplier: 1.25,
+    speedMultiplier: 1.25,
+  },
+  {
+    name: "expert",
+    minScore: 30,
+    spawnInterval: 0.6,
+    patternStart: 10,
+    patternEnd: 40,
+    scaleFactor: 1.25,
+    massMultiplier: 1.4,
+    speedMultiplier: 1.4,
+  },
+  {
+    name: "insane",
+    minScore: 40,
+    spawnInterval: 0.45,
+    patternStart: 15,
+    patternEnd: 40,
+    scaleFactor: 1.35,
+    massMultiplier: 1.6,
+    speedMultiplier: 1.6,
+  },
+];
 
 // ─── Colors ───
 export const OBSTACLE_COLORS = [
@@ -108,6 +168,8 @@ export interface WavePattern {
 }
 
 export const WAVE_PATTERNS: WavePattern[] = [
+  // ─── EASY (indices 0-4) ───
+
   // Single block
   {
     obstacles: [
@@ -129,10 +191,52 @@ export const WAVE_PATTERNS: WavePattern[] = [
       { shape: "circle", xRatio: 0.8, yOffset: 0, width: 0, height: 0, radius: 18, mass: 1.5 },
     ],
   },
+  // Single diamond
+  {
+    obstacles: [
+      { shape: "diamond", xRatio: 0.5, yOffset: 0, width: 50, height: 60, radius: 0, mass: 2 },
+    ],
+  },
+  // Pair of pills
+  {
+    obstacles: [
+      { shape: "pill", xRatio: 0.3, yOffset: 0, width: 70, height: 24, radius: 0, mass: 2 },
+      { shape: "pill", xRatio: 0.7, yOffset: -20, width: 70, height: 24, radius: 0, mass: 2 },
+    ],
+  },
+
+  // ─── MEDIUM (indices 5-14) ───
+
   // Wide bar
   {
     obstacles: [
       { shape: "rect", xRatio: 0.5, yOffset: 0, width: 180, height: 20, radius: 0, mass: 4 },
+    ],
+  },
+  // Narrow gap
+  {
+    obstacles: [
+      { shape: "rect", xRatio: 0.15, yOffset: 0, width: 100, height: 25, radius: 0, mass: 3 },
+      { shape: "rect", xRatio: 0.85, yOffset: 0, width: 100, height: 25, radius: 0, mass: 3 },
+    ],
+  },
+  // Brick wall - 3 bricks in a row
+  {
+    obstacles: [
+      { shape: "rect", xRatio: 0.2, yOffset: 0, width: 55, height: 22, radius: 0, mass: 2 },
+      { shape: "rect", xRatio: 0.5, yOffset: 0, width: 55, height: 22, radius: 0, mass: 2 },
+      { shape: "rect", xRatio: 0.8, yOffset: 0, width: 55, height: 22, radius: 0, mass: 2 },
+    ],
+  },
+  // Double brick wall - offset rows
+  {
+    obstacles: [
+      { shape: "rect", xRatio: 0.25, yOffset: 0, width: 50, height: 18, radius: 0, mass: 2 },
+      { shape: "rect", xRatio: 0.55, yOffset: 0, width: 50, height: 18, radius: 0, mass: 2 },
+      { shape: "rect", xRatio: 0.85, yOffset: 0, width: 50, height: 18, radius: 0, mass: 2 },
+      { shape: "rect", xRatio: 0.15, yOffset: -24, width: 50, height: 18, radius: 0, mass: 2 },
+      { shape: "rect", xRatio: 0.4, yOffset: -24, width: 50, height: 18, radius: 0, mass: 2 },
+      { shape: "rect", xRatio: 0.7, yOffset: -24, width: 50, height: 18, radius: 0, mass: 2 },
     ],
   },
   // Diagonal scatter
@@ -151,11 +255,20 @@ export const WAVE_PATTERNS: WavePattern[] = [
       { shape: "triangle", xRatio: 0.7, yOffset: -50, width: 40, height: 35, radius: 0, mass: 1.5 },
     ],
   },
-  // Narrow gap
+  // Hexagon cluster
   {
     obstacles: [
-      { shape: "rect", xRatio: 0.15, yOffset: 0, width: 100, height: 25, radius: 0, mass: 3 },
-      { shape: "rect", xRatio: 0.85, yOffset: 0, width: 100, height: 25, radius: 0, mass: 3 },
+      { shape: "hexagon", xRatio: 0.35, yOffset: 0, width: 0, height: 0, radius: 22, mass: 2.5 },
+      { shape: "hexagon", xRatio: 0.65, yOffset: 0, width: 0, height: 0, radius: 22, mass: 2.5 },
+      { shape: "hexagon", xRatio: 0.5, yOffset: -38, width: 0, height: 0, radius: 22, mass: 2.5 },
+    ],
+  },
+  // Diamond gate
+  {
+    obstacles: [
+      { shape: "diamond", xRatio: 0.2, yOffset: 0, width: 40, height: 55, radius: 0, mass: 2 },
+      { shape: "diamond", xRatio: 0.8, yOffset: 0, width: 40, height: 55, radius: 0, mass: 2 },
+      { shape: "rect", xRatio: 0.5, yOffset: -40, width: 60, height: 14, radius: 0, mass: 2 },
     ],
   },
   // Moving blocks
@@ -165,25 +278,72 @@ export const WAVE_PATTERNS: WavePattern[] = [
       { shape: "rect", xRatio: 0.7, yOffset: -30, width: 50, height: 30, radius: 0, mass: 2, vx: -40 },
     ],
   },
+
+  // ─── HARD (indices 15-29) ───
+
   // Big circle
   {
     obstacles: [
       { shape: "circle", xRatio: 0.5, yOffset: 0, width: 0, height: 0, radius: 35, mass: 5 },
     ],
   },
-  // Dense scatter
-  {
-    obstacles: [
-      { shape: "circle", xRatio: 0.15, yOffset: 0, width: 0, height: 0, radius: 14, mass: 1 },
-      { shape: "circle", xRatio: 0.38, yOffset: -15, width: 0, height: 0, radius: 14, mass: 1 },
-      { shape: "circle", xRatio: 0.62, yOffset: -30, width: 0, height: 0, radius: 14, mass: 1 },
-      { shape: "circle", xRatio: 0.85, yOffset: -45, width: 0, height: 0, radius: 14, mass: 1 },
-    ],
-  },
-  // Spinning bar (angular velocity)
+  // Spinning bar
   {
     obstacles: [
       { shape: "rect", xRatio: 0.5, yOffset: 0, width: 120, height: 16, radius: 0, mass: 3, angularVel: 1.5 },
+    ],
+  },
+  // Spinning plus
+  {
+    obstacles: [
+      { shape: "plus", xRatio: 0.5, yOffset: 0, width: 80, height: 80, radius: 0, mass: 4, angularVel: 1.2 },
+    ],
+  },
+  // Pillar gate - two tall pills with gap
+  {
+    obstacles: [
+      { shape: "pill", xRatio: 0.2, yOffset: 0, width: 22, height: 80, radius: 0, mass: 3 },
+      { shape: "pill", xRatio: 0.8, yOffset: 0, width: 22, height: 80, radius: 0, mass: 3 },
+      { shape: "rect", xRatio: 0.5, yOffset: 45, width: 100, height: 14, radius: 0, mass: 2 },
+    ],
+  },
+  // Pyramid - stacked rows
+  {
+    obstacles: [
+      { shape: "rect", xRatio: 0.5, yOffset: 0, width: 40, height: 20, radius: 0, mass: 2 },
+      { shape: "rect", xRatio: 0.35, yOffset: -25, width: 40, height: 20, radius: 0, mass: 2 },
+      { shape: "rect", xRatio: 0.65, yOffset: -25, width: 40, height: 20, radius: 0, mass: 2 },
+      { shape: "rect", xRatio: 0.2, yOffset: -50, width: 40, height: 20, radius: 0, mass: 2 },
+      { shape: "rect", xRatio: 0.5, yOffset: -50, width: 40, height: 20, radius: 0, mass: 2 },
+      { shape: "rect", xRatio: 0.8, yOffset: -50, width: 40, height: 20, radius: 0, mass: 2 },
+    ],
+  },
+  // Zigzag wall
+  {
+    obstacles: [
+      { shape: "rect", xRatio: 0.2, yOffset: 0, width: 70, height: 16, radius: 0, mass: 2 },
+      { shape: "rect", xRatio: 0.6, yOffset: -30, width: 70, height: 16, radius: 0, mass: 2 },
+      { shape: "rect", xRatio: 0.3, yOffset: -60, width: 70, height: 16, radius: 0, mass: 2 },
+      { shape: "rect", xRatio: 0.7, yOffset: -90, width: 70, height: 16, radius: 0, mass: 2 },
+    ],
+  },
+  // Circle chain
+  {
+    obstacles: [
+      { shape: "circle", xRatio: 0.15, yOffset: 0, width: 0, height: 0, radius: 14, mass: 1 },
+      { shape: "circle", xRatio: 0.3, yOffset: -10, width: 0, height: 0, radius: 14, mass: 1 },
+      { shape: "circle", xRatio: 0.45, yOffset: -20, width: 0, height: 0, radius: 14, mass: 1 },
+      { shape: "circle", xRatio: 0.6, yOffset: -30, width: 0, height: 0, radius: 14, mass: 1 },
+      { shape: "circle", xRatio: 0.75, yOffset: -40, width: 0, height: 0, radius: 14, mass: 1 },
+      { shape: "circle", xRatio: 0.9, yOffset: -50, width: 0, height: 0, radius: 14, mass: 1 },
+    ],
+  },
+  // Archway - two pillars with a lintel
+  {
+    obstacles: [
+      { shape: "rect", xRatio: 0.25, yOffset: 0, width: 20, height: 60, radius: 0, mass: 3 },
+      { shape: "rect", xRatio: 0.75, yOffset: 0, width: 20, height: 60, radius: 0, mass: 3 },
+      { shape: "rect", xRatio: 0.5, yOffset: -35, width: 140, height: 16, radius: 0, mass: 3 },
     ],
   },
   // Mixed shapes cluster
@@ -192,6 +352,144 @@ export const WAVE_PATTERNS: WavePattern[] = [
       { shape: "rect", xRatio: 0.3, yOffset: 0, width: 45, height: 45, radius: 0, mass: 2.5 },
       { shape: "circle", xRatio: 0.55, yOffset: -20, width: 0, height: 0, radius: 20, mass: 1.8 },
       { shape: "triangle", xRatio: 0.78, yOffset: -40, width: 45, height: 40, radius: 0, mass: 2 },
+    ],
+  },
+  // Cross barricade
+  {
+    obstacles: [
+      { shape: "rect", xRatio: 0.5, yOffset: 0, width: 160, height: 14, radius: 0, mass: 3 },
+      { shape: "rect", xRatio: 0.35, yOffset: 0, width: 14, height: 60, radius: 0, mass: 2 },
+      { shape: "rect", xRatio: 0.65, yOffset: 0, width: 14, height: 60, radius: 0, mass: 2 },
+    ],
+  },
+  // Diamond rain
+  {
+    obstacles: [
+      { shape: "diamond", xRatio: 0.15, yOffset: 0, width: 30, height: 40, radius: 0, mass: 1.5 },
+      { shape: "diamond", xRatio: 0.4, yOffset: -25, width: 30, height: 40, radius: 0, mass: 1.5 },
+      { shape: "diamond", xRatio: 0.65, yOffset: -50, width: 30, height: 40, radius: 0, mass: 1.5 },
+      { shape: "diamond", xRatio: 0.85, yOffset: -75, width: 30, height: 40, radius: 0, mass: 1.5 },
+    ],
+  },
+  // Converging pills
+  {
+    obstacles: [
+      { shape: "pill", xRatio: 0.2, yOffset: 0, width: 80, height: 22, radius: 0, mass: 2.5, vx: 30 },
+      { shape: "pill", xRatio: 0.8, yOffset: -30, width: 80, height: 22, radius: 0, mass: 2.5, vx: -30 },
+      { shape: "pill", xRatio: 0.2, yOffset: -60, width: 80, height: 22, radius: 0, mass: 2.5, vx: 30 },
+    ],
+  },
+  // Hexagon wall
+  {
+    obstacles: [
+      { shape: "hexagon", xRatio: 0.15, yOffset: 0, width: 0, height: 0, radius: 20, mass: 2 },
+      { shape: "hexagon", xRatio: 0.38, yOffset: 0, width: 0, height: 0, radius: 20, mass: 2 },
+      { shape: "hexagon", xRatio: 0.62, yOffset: 0, width: 0, height: 0, radius: 20, mass: 2 },
+      { shape: "hexagon", xRatio: 0.85, yOffset: 0, width: 0, height: 0, radius: 20, mass: 2 },
+    ],
+  },
+  // Tower - vertical stack
+  {
+    obstacles: [
+      { shape: "rect", xRatio: 0.5, yOffset: 0, width: 50, height: 20, radius: 0, mass: 2 },
+      { shape: "rect", xRatio: 0.5, yOffset: -24, width: 50, height: 20, radius: 0, mass: 2 },
+      { shape: "rect", xRatio: 0.5, yOffset: -48, width: 50, height: 20, radius: 0, mass: 2 },
+      { shape: "triangle", xRatio: 0.5, yOffset: -72, width: 55, height: 30, radius: 0, mass: 1.5 },
+    ],
+  },
+
+  // ─── EXPERT (indices 30+) ───
+
+  // Full wall with keyhole gap
+  {
+    obstacles: [
+      { shape: "rect", xRatio: 0.12, yOffset: 0, width: 80, height: 20, radius: 0, mass: 3 },
+      { shape: "rect", xRatio: 0.88, yOffset: 0, width: 80, height: 20, radius: 0, mass: 3 },
+      { shape: "rect", xRatio: 0.35, yOffset: 0, width: 50, height: 20, radius: 0, mass: 3 },
+      { shape: "rect", xRatio: 0.65, yOffset: 0, width: 50, height: 20, radius: 0, mass: 3 },
+    ],
+  },
+  // Double spinning bars
+  {
+    obstacles: [
+      { shape: "rect", xRatio: 0.3, yOffset: 0, width: 90, height: 14, radius: 0, mass: 3, angularVel: 1.8 },
+      { shape: "rect", xRatio: 0.7, yOffset: -40, width: 90, height: 14, radius: 0, mass: 3, angularVel: -1.8 },
+    ],
+  },
+  // Fortress - box structure
+  {
+    obstacles: [
+      { shape: "rect", xRatio: 0.3, yOffset: 0, width: 14, height: 70, radius: 0, mass: 3 },
+      { shape: "rect", xRatio: 0.7, yOffset: 0, width: 14, height: 70, radius: 0, mass: 3 },
+      { shape: "rect", xRatio: 0.5, yOffset: -40, width: 120, height: 14, radius: 0, mass: 3 },
+      { shape: "rect", xRatio: 0.5, yOffset: 40, width: 120, height: 14, radius: 0, mass: 3 },
+    ],
+  },
+  // Staircase
+  {
+    obstacles: [
+      { shape: "rect", xRatio: 0.15, yOffset: 0, width: 55, height: 16, radius: 0, mass: 2 },
+      { shape: "rect", xRatio: 0.35, yOffset: -22, width: 55, height: 16, radius: 0, mass: 2 },
+      { shape: "rect", xRatio: 0.55, yOffset: -44, width: 55, height: 16, radius: 0, mass: 2 },
+      { shape: "rect", xRatio: 0.75, yOffset: -66, width: 55, height: 16, radius: 0, mass: 2 },
+    ],
+  },
+  // Spinning plus pair
+  {
+    obstacles: [
+      { shape: "plus", xRatio: 0.3, yOffset: 0, width: 70, height: 70, radius: 0, mass: 3.5, angularVel: 1.5 },
+      { shape: "plus", xRatio: 0.7, yOffset: -40, width: 70, height: 70, radius: 0, mass: 3.5, angularVel: -1.5 },
+    ],
+  },
+  // Funnel
+  {
+    obstacles: [
+      { shape: "rect", xRatio: 0.1, yOffset: -60, width: 80, height: 16, radius: 0, mass: 2.5 },
+      { shape: "rect", xRatio: 0.9, yOffset: -60, width: 80, height: 16, radius: 0, mass: 2.5 },
+      { shape: "rect", xRatio: 0.2, yOffset: -30, width: 60, height: 16, radius: 0, mass: 2.5 },
+      { shape: "rect", xRatio: 0.8, yOffset: -30, width: 60, height: 16, radius: 0, mass: 2.5 },
+      { shape: "rect", xRatio: 0.3, yOffset: 0, width: 50, height: 16, radius: 0, mass: 2.5 },
+      { shape: "rect", xRatio: 0.7, yOffset: 0, width: 50, height: 16, radius: 0, mass: 2.5 },
+    ],
+  },
+  // Checkerboard
+  {
+    obstacles: [
+      { shape: "rect", xRatio: 0.2, yOffset: 0, width: 35, height: 35, radius: 0, mass: 2 },
+      { shape: "rect", xRatio: 0.5, yOffset: 0, width: 35, height: 35, radius: 0, mass: 2 },
+      { shape: "rect", xRatio: 0.8, yOffset: 0, width: 35, height: 35, radius: 0, mass: 2 },
+      { shape: "rect", xRatio: 0.35, yOffset: -40, width: 35, height: 35, radius: 0, mass: 2 },
+      { shape: "rect", xRatio: 0.65, yOffset: -40, width: 35, height: 35, radius: 0, mass: 2 },
+    ],
+  },
+  // Mixed shape gauntlet
+  {
+    obstacles: [
+      { shape: "hexagon", xRatio: 0.2, yOffset: 0, width: 0, height: 0, radius: 18, mass: 2 },
+      { shape: "diamond", xRatio: 0.5, yOffset: -30, width: 40, height: 50, radius: 0, mass: 2 },
+      { shape: "plus", xRatio: 0.8, yOffset: -60, width: 55, height: 55, radius: 0, mass: 2.5 },
+      { shape: "pill", xRatio: 0.35, yOffset: -90, width: 60, height: 20, radius: 0, mass: 2 },
+    ],
+  },
+  // Triple archway
+  {
+    obstacles: [
+      { shape: "rect", xRatio: 0.1, yOffset: 0, width: 16, height: 50, radius: 0, mass: 2.5 },
+      { shape: "rect", xRatio: 0.38, yOffset: 0, width: 16, height: 50, radius: 0, mass: 2.5 },
+      { shape: "rect", xRatio: 0.62, yOffset: 0, width: 16, height: 50, radius: 0, mass: 2.5 },
+      { shape: "rect", xRatio: 0.9, yOffset: 0, width: 16, height: 50, radius: 0, mass: 2.5 },
+      { shape: "rect", xRatio: 0.24, yOffset: -30, width: 80, height: 14, radius: 0, mass: 2 },
+      { shape: "rect", xRatio: 0.76, yOffset: -30, width: 80, height: 14, radius: 0, mass: 2 },
+    ],
+  },
+  // V-formation
+  {
+    obstacles: [
+      { shape: "circle", xRatio: 0.5, yOffset: 0, width: 0, height: 0, radius: 16, mass: 1.5 },
+      { shape: "circle", xRatio: 0.35, yOffset: -30, width: 0, height: 0, radius: 16, mass: 1.5 },
+      { shape: "circle", xRatio: 0.65, yOffset: -30, width: 0, height: 0, radius: 16, mass: 1.5 },
+      { shape: "circle", xRatio: 0.2, yOffset: -60, width: 0, height: 0, radius: 16, mass: 1.5 },
+      { shape: "circle", xRatio: 0.8, yOffset: -60, width: 0, height: 0, radius: 16, mass: 1.5 },
     ],
   },
 ];
