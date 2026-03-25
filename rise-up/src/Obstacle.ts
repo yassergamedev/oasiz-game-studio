@@ -12,6 +12,8 @@ import {
   DIFFICULTY_TIERS,
 } from "./constants.ts";
 
+const OBSTACLE_SCALE = 0.7;
+
 export interface Obstacle {
   id: number;
   shape: ObstacleShape;
@@ -110,10 +112,30 @@ export function updateObstacle(obs: Obstacle, dt: number): void {
   obs.angle += obs.angularVel * dt;
 }
 
+function getObstacleBounds(x: number, y: number, w: number, h: number, r: number, shape: ObstacleShape): { cx: number; cy: number; halfW: number; halfH: number } {
+  if (shape === "circle" || shape === "hexagon") {
+    return { cx: x, cy: y, halfW: r, halfH: r };
+  }
+  if (shape === "pill") {
+    return { cx: x, cy: y, halfW: Math.max(w, h) / 2, halfH: Math.max(w, h) / 2 };
+  }
+  return { cx: x, cy: y, halfW: w / 2, halfH: h / 2 };
+}
+
+function boundsOverlap(
+  a: { cx: number; cy: number; halfW: number; halfH: number },
+  b: { cx: number; cy: number; halfW: number; halfH: number },
+  padding: number,
+): boolean {
+  return (
+    Math.abs(a.cx - b.cx) < a.halfW + b.halfW + padding &&
+    Math.abs(a.cy - b.cy) < a.halfH + b.halfH + padding
+  );
+}
+
 export class ObstacleSpawner {
   private obstacles: Obstacle[] = [];
-  private spawnTimer = 0;
-  private lastSpawnY = 0;
+  private nextSpawnY = 0;
   private screenWidth = 0;
   private currentTier: DifficultyTier = DIFFICULTY_TIERS[0];
 
@@ -127,8 +149,7 @@ export class ObstacleSpawner {
 
   reset(screenWidth: number, balloonY: number): void {
     this.obstacles = [];
-    this.spawnTimer = 0;
-    this.lastSpawnY = balloonY - SPAWN_AHEAD_DISTANCE;
+    this.nextSpawnY = balloonY - 150;
     this.screenWidth = screenWidth;
     this.currentTier = DIFFICULTY_TIERS[0];
     nextId = 0;
@@ -142,14 +163,18 @@ export class ObstacleSpawner {
     this.obstacles = this.obstacles.filter((o) => o.id !== id);
   }
 
-  update(dt: number, cameraY: number, balloonY: number, score: number): void {
-    this.screenWidth = window.innerWidth;
+  update(dt: number, cameraY: number, balloonY: number, score: number, screenWidth?: number): void {
+    if (screenWidth !== undefined) {
+      this.screenWidth = screenWidth;
+    }
     this.currentTier = this.getTierForScore(score);
 
-    this.spawnTimer += dt;
-    if (this.spawnTimer >= this.currentTier.spawnInterval && this.obstacles.length < MAX_OBSTACLES) {
-      this.spawnTimer = 0;
-      this.spawnWave(balloonY);
+    const spawnHorizon = balloonY - SPAWN_AHEAD_DISTANCE;
+    let safety = 0;
+    while (this.nextSpawnY >= spawnHorizon && this.obstacles.length < MAX_OBSTACLES && safety < 10) {
+      this.spawnWave(this.nextSpawnY);
+      this.nextSpawnY -= this.currentTier.spawnDistance;
+      safety++;
     }
 
     for (const obs of this.obstacles) {
@@ -169,8 +194,7 @@ export class ObstacleSpawner {
     return tier;
   }
 
-  private spawnWave(balloonY: number): void {
-    const spawnY = balloonY - SPAWN_AHEAD_DISTANCE;
+  private spawnWave(spawnY: number): void {
     const tier = this.currentTier;
 
     const end = Math.min(tier.patternEnd, WAVE_PATTERNS.length);
@@ -180,24 +204,38 @@ export class ObstacleSpawner {
 
     const pattern = available[Math.floor(Math.random() * available.length)];
 
+    const existingBounds = this.obstacles
+      .filter((o) => !o.isDebris)
+      .map((o) => getObstacleBounds(o.pos.x, o.pos.y, o.width, o.height, o.radius, o.shape));
+
+    const OVERLAP_PAD = 20;
+
     for (const def of pattern.obstacles) {
       const x = def.xRatio * this.screenWidth;
       const y = spawnY + def.yOffset;
 
-      const w = def.width * tier.scaleFactor;
-      const h = def.height * tier.scaleFactor;
-      const r = def.radius * tier.scaleFactor;
+      const w = def.width * tier.scaleFactor * OBSTACLE_SCALE;
+      const h = def.height * tier.scaleFactor * OBSTACLE_SCALE;
+      const r = def.radius * tier.scaleFactor * OBSTACLE_SCALE;
       const mass = def.mass * tier.massMultiplier;
+
+      const newBounds = getObstacleBounds(x, y, w, h, r, def.shape);
+      let overlaps = false;
+      for (const eb of existingBounds) {
+        if (boundsOverlap(newBounds, eb, OVERLAP_PAD)) {
+          overlaps = true;
+          break;
+        }
+      }
+      if (overlaps) continue;
 
       const vx = (def.vx || 0) * tier.speedMultiplier;
       const vy = (def.vy || 0);
       const angVel = (def.angularVel || 0) * tier.speedMultiplier;
 
-      this.obstacles.push(
-        createObstacle(def.shape, x, y, w, h, r, mass, vx, vy, angVel),
-      );
+      const obs = createObstacle(def.shape, x, y, w, h, r, mass, vx, vy, angVel);
+      this.obstacles.push(obs);
+      existingBounds.push(getObstacleBounds(obs.pos.x, obs.pos.y, obs.width, obs.height, obs.radius, obs.shape));
     }
-
-    this.lastSpawnY = spawnY;
   }
 }

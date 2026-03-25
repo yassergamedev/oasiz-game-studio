@@ -74,7 +74,7 @@ export const OBSTACLE_FRICTION = 0.98;
 export const OBSTACLE_RESTITUTION = 0.4;
 
 // ─── Spawning ───
-export const SPAWN_AHEAD_DISTANCE = 400;
+export const SPAWN_AHEAD_DISTANCE = 500;
 export const DESPAWN_BEHIND_DISTANCE = 400;
 export const MAX_OBSTACLES = 50;
 
@@ -82,7 +82,7 @@ export const MAX_OBSTACLES = 50;
 export interface DifficultyTier {
   name: string;
   minScore: number;
-  spawnInterval: number;
+  spawnDistance: number;
   patternStart: number;
   patternEnd: number;
   scaleFactor: number;
@@ -94,7 +94,7 @@ export const DIFFICULTY_TIERS: DifficultyTier[] = [
   {
     name: "easy",
     minScore: 0,
-    spawnInterval: 2.0,
+    spawnDistance: 280,
     patternStart: 0,
     patternEnd: 5,
     scaleFactor: 1.0,
@@ -104,7 +104,7 @@ export const DIFFICULTY_TIERS: DifficultyTier[] = [
   {
     name: "medium",
     minScore: 10,
-    spawnInterval: 1.7,
+    spawnDistance: 240,
     patternStart: 0,
     patternEnd: 19,
     scaleFactor: 1.05,
@@ -114,7 +114,7 @@ export const DIFFICULTY_TIERS: DifficultyTier[] = [
   {
     name: "hard",
     minScore: 20,
-    spawnInterval: 1.4,
+    spawnDistance: 200,
     patternStart: 5,
     patternEnd: 37,
     scaleFactor: 1.15,
@@ -124,7 +124,7 @@ export const DIFFICULTY_TIERS: DifficultyTier[] = [
   {
     name: "expert",
     minScore: 30,
-    spawnInterval: 1.1,
+    spawnDistance: 170,
     patternStart: 10,
     patternEnd: 50,
     scaleFactor: 1.25,
@@ -134,7 +134,7 @@ export const DIFFICULTY_TIERS: DifficultyTier[] = [
   {
     name: "insane",
     minScore: 40,
-    spawnInterval: 0.8,
+    spawnDistance: 140,
     patternStart: 15,
     patternEnd: 50,
     scaleFactor: 1.35,
@@ -189,12 +189,10 @@ export const WAVE_PATTERNS: WavePattern[] = [
       { shape: "rect", xRatio: 0.7, yOffset: 0, width: 50, height: 25, radius: 0, mass: 2 },
     ],
   },
-  // Three circles
+  // Single circle
   {
     obstacles: [
-      { shape: "circle", xRatio: 0.2, yOffset: 0, width: 0, height: 0, radius: 18, mass: 1.5 },
-      { shape: "circle", xRatio: 0.5, yOffset: -20, width: 0, height: 0, radius: 22, mass: 2 },
-      { shape: "circle", xRatio: 0.8, yOffset: 0, width: 0, height: 0, radius: 18, mass: 1.5 },
+      { shape: "circle", xRatio: 0.5, yOffset: 0, width: 0, height: 0, radius: 22, mass: 2 },
     ],
   },
   // Small tower

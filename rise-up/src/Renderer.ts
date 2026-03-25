@@ -7,9 +7,11 @@ import { type CameraState } from "./Camera.ts";
 import { type Particle } from "./ParticleSystem.ts";
 import { BG_COLOR } from "./constants.ts";
 
-import legoModelUrl from "./assets/models/Lego.fbx";
+// Served from `public/assets/...` (matches how `paper-io` references its public assets).
+const legoModelUrl = "assets/models/Lego.fbx";
 
-const BRICK_UNIT = 28;
+const OBSTACLE_SCALE = 0.7;
+const BRICK_UNIT = 28 * OBSTACLE_SCALE;
 const GROUND_Y = -1;
 const BALLOON_HOVER_Y = 8;
 const SHIELD_HOVER_Y = 4;
@@ -57,15 +59,20 @@ export class Renderer {
   private legoBrickReady = false;
   private envMap: THREE.Texture | null = null;
 
-  private _width = window.innerWidth;
-  private _height = window.innerHeight;
+  private _width = 0;
+  private _height = 0;
+  private container: HTMLElement;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, container: HTMLElement) {
+    this.container = container;
+    this._width = container.clientWidth;
+    this._height = container.clientHeight;
+
     this.threeRenderer = new THREE.WebGLRenderer({
       canvas,
       antialias: true,
     });
-    this.threeRenderer.setSize(window.innerWidth, window.innerHeight);
+    this.threeRenderer.setSize(this._width, this._height);
     this.threeRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.threeRenderer.setClearColor(new THREE.Color(BG_COLOR));
     this.threeRenderer.shadowMap.enabled = true;
@@ -76,7 +83,7 @@ export class Renderer {
 
     this.scene = new THREE.Scene();
 
-    const aspect = window.innerWidth / window.innerHeight;
+    const aspect = this._width / this._height;
     this.camera = new THREE.PerspectiveCamera(50, aspect, 1, 2000);
     this.camera.position.set(0, CAM_HEIGHT, CAM_TILT_OFFSET);
     this.camera.lookAt(0, 0, 0);
@@ -226,8 +233,8 @@ export class Renderer {
   }
 
   resize(): void {
-    this._width = window.innerWidth;
-    this._height = window.innerHeight;
+    this._width = this.container.clientWidth;
+    this._height = this.container.clientHeight;
 
     this.threeRenderer.setSize(this._width, this._height);
 
@@ -348,6 +355,27 @@ export class Renderer {
       x: (pos.x * 0.5 + 0.5) * this._width,
       y: (-pos.y * 0.5 + 0.5) * this._height,
     };
+  }
+
+  private _raycaster = new THREE.Raycaster();
+  private _groundPlaneForRaycast = new THREE.Plane(new THREE.Vector3(0, 1, 0), -SHIELD_HOVER_Y);
+
+  unprojectScreenToGame(screenX: number, screenY: number): { gameX: number; gameY: number } {
+    const ndcX = (screenX / this._width) * 2 - 1;
+    const ndcY = -(screenY / this._height) * 2 + 1;
+
+    this._raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), this.camera);
+
+    const intersection = new THREE.Vector3();
+    const hit = this._raycaster.ray.intersectPlane(this._groundPlaneForRaycast, intersection);
+
+    if (hit) {
+      const gameX = intersection.x + this._width / 2;
+      const gameY = intersection.z;
+      return { gameX, gameY };
+    }
+
+    return { gameX: screenX, gameY: screenY };
   }
 
   hideBalloon(): void {

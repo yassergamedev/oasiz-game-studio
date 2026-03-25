@@ -56,7 +56,8 @@ export class Game {
 
   constructor() {
     const canvas = document.getElementById("game-canvas") as HTMLCanvasElement;
-    this.renderer = new Renderer(canvas);
+    const container = document.getElementById("game-wrapper") as HTMLElement;
+    this.renderer = new Renderer(canvas, container);
     this.audio = new Audio();
     this.hud = new HUD();
     this.menu = new Menu();
@@ -115,6 +116,7 @@ export class Game {
       this.inputHandler.rebind(this.shield);
     } else {
       this.inputHandler = new InputHandler(this.shield, canvas);
+      this.inputHandler.setRenderer(this.renderer);
     }
     this.inputHandler.setCamera(this.camera);
 
@@ -202,7 +204,7 @@ export class Game {
     updateShield(this.shield, dt);
 
     this.score = getScore(this.balloon, this.startY);
-    this.spawner.update(dt, this.camera.y + this.renderer.height, this.balloon.pos.y, this.score);
+    this.spawner.update(dt, this.camera.y + this.renderer.height, this.balloon.pos.y, this.score, this.renderer.width);
 
     this.resolveCollisions();
     this.hud.updateScore(this.score);
@@ -504,10 +506,13 @@ export class Game {
     const settingsModal = document.getElementById("settings-modal");
 
     settingsBtn?.addEventListener("click", () => {
+      const wasOpen = this.settingsOpen;
       this.settingsOpen = !this.settingsOpen;
       settingsModal?.classList.toggle("visible", this.settingsOpen);
       if (this.settingsOpen && this.state === "PLAYING") {
-        this.togglePause();
+        this.state = "PAUSED";
+      } else if (wasOpen && !this.settingsOpen && this.state === "PAUSED") {
+        this.state = "PLAYING";
       }
     });
 
@@ -516,6 +521,9 @@ export class Game {
         if (!settingsModal.contains(e.target as Node) && !settingsBtn.contains(e.target as Node)) {
           this.settingsOpen = false;
           settingsModal.classList.remove("visible");
+          if (this.state === "PAUSED") {
+            this.state = "PLAYING";
+          }
         }
       }
     });
