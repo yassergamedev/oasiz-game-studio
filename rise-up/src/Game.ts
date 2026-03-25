@@ -4,11 +4,12 @@ import {
   type GameState as AppGameState,
   type Vec2,
   SHIELD_PUSH_FORCE,
+  OBSTACLE_RESTITUTION,
   SCORE_ANCHORS,
 } from "./constants.ts";
 import { type BalloonState, createBalloon, updateBalloon, popBalloon, getScore } from "./Balloon.ts";
 import { type ShieldState, createShield, updateShield, refreshShieldTarget, InputHandler } from "./Shield.ts";
-import { type Obstacle, ObstacleSpawner } from "./Obstacle.ts";
+import { type Obstacle, ObstacleSpawner, createDebrisBrick } from "./Obstacle.ts";
 import { type CameraState, createCamera, updateCamera } from "./Camera.ts";
 import { Renderer } from "./Renderer.ts";
 import { ParticleSystem } from "./ParticleSystem.ts";
@@ -25,6 +26,8 @@ import {
   getDiamondVerts,
   getHexagonVerts,
   resolveShieldObstacleCollision,
+  testObstacleVsObstacle,
+  resolveObstacleCollision,
 } from "./Physics.ts";
 
 export class Game {
@@ -47,6 +50,7 @@ export class Game {
   private rafId = 0;
   private lastFrameTime = 0;
   private settingsOpen = false;
+  private shieldCursorEl: HTMLElement | null = null;
   private gameOverDelay = 0;
   private gameOverShown = false;
 
@@ -58,6 +62,7 @@ export class Game {
     this.menu = new Menu();
     this.particles = new ParticleSystem();
     this.spawner = new ObstacleSpawner();
+    this.shieldCursorEl = document.getElementById("shield-cursor");
 
     this.bestScore = this.loadBestScore();
 
@@ -85,6 +90,10 @@ export class Game {
     this.menu.hideGameOver();
     this.menu.showMenu(this.bestScore);
     this.audio.stopMusic();
+    this.renderer.hideBalloon();
+    this.renderer.hideShield();
+    this.renderer.clearObstacles();
+    this.shieldCursorEl?.classList.remove("visible");
   }
 
   private startGame(): void {
@@ -111,6 +120,7 @@ export class Game {
 
     this.spawner.reset(w, this.balloon.pos.y);
     this.particles.reset();
+    this.renderer.clearObstacles();
 
     this.score = 0;
     this.gameOverDelay = 0;
@@ -215,12 +225,6 @@ export class Game {
 
   private resolveCollisions(): void {
     const obstacles = this.spawner.getObstacles();
-    const balloonBody = {
-      pos: this.balloon.pos,
-      vel: { x: 0, y: -this.balloon.riseSpeed },
-      radius: this.balloon.radius,
-      mass: 1,
-    };
     const shieldBody = {
       pos: this.shield.pos,
       vel: this.shield.vel,
@@ -228,10 +232,30 @@ export class Game {
       mass: 100,
     };
 
-    const deflected = new Set<number>();
+    const toBreak: Obstacle[] = [];
 
-    for (let pass = 0; pass < 3; pass++) {
-      for (const obs of obstacles) {
+    for (const obs of obstacles) {
+      if (obs.isDebris) continue;
+
+      const shieldResult = this.testCollision(shieldBody.pos, shieldBody.radius, obs);
+      if (shieldResult.hit) {
+        toBreak.push(obs);
+
+        this.particles.emitSparkle(
+          obs.pos.x - shieldResult.normal.x * 10,
+          obs.pos.y - shieldResult.normal.y * 10,
+          "#ffffff",
+        );
+        this.audio.playDeflect();
+      }
+    }
+
+    for (const obs of toBreak) {
+      this.breakObstacle(obs);
+    }
+
+    for (const obs of obstacles) {
+      if (!obs.isStatic) {
         const shieldResult = this.testCollision(shieldBody.pos, shieldBody.radius, obs);
         if (shieldResult.hit) {
           obs.vel = resolveShieldObstacleCollision(
@@ -244,26 +268,15 @@ export class Game {
             shieldResult.depth,
             SHIELD_PUSH_FORCE / obs.mass,
           );
-
-          const cross = shieldResult.normal.x * shieldBody.vel.y - shieldResult.normal.y * shieldBody.vel.x;
-          obs.angularVel += (cross * 0.005) / obs.mass;
-
-          if (!deflected.has(obs.id)) {
-            deflected.add(obs.id);
-            this.particles.emitSparkle(
-              obs.pos.x - shieldResult.normal.x * 10,
-              obs.pos.y - shieldResult.normal.y * 10,
-              "#ffffff",
-            );
-            this.audio.playDeflect();
-          }
         }
       }
     }
 
+    this.resolveMovingObstacleCollisions(obstacles);
+
     for (const obs of obstacles) {
       if (this.balloon.alive) {
-        const balloonResult = this.testCollision(balloonBody.pos, balloonBody.radius, obs);
+        const balloonResult = this.testCollision({ x: this.balloon.pos.x, y: this.balloon.pos.y }, this.balloon.radius, obs);
         if (balloonResult.hit) {
           this.gameOver();
           return;
@@ -273,6 +286,7 @@ export class Game {
 
     const w = this.renderer.width;
     for (const obs of obstacles) {
+      if (obs.isStatic) continue;
       let halfW: number;
       if (obs.shape === "circle" || obs.shape === "hexagon") halfW = obs.radius;
       else if (obs.shape === "pill") halfW = Math.max(obs.width, obs.height) / 2;
@@ -287,6 +301,137 @@ export class Game {
     }
   }
 
+  private resolveMovingObstacleCollisions(obstacles: Obstacle[]): void {
+    const moving = obstacles.filter(o => !o.isStatic);
+    const toBreak: Obstacle[] = [];
+
+    for (const a of moving) {
+      for (const other of obstacles) {
+        if (other === a) continue;
+        if (other.isStatic && other.isDebris) continue;
+
+        const result = testObstacleVsObstacle(
+          { pos: a.pos, vel: a.vel, width: a.width, height: a.height, radius: a.radius, mass: a.mass, shape: a.shape },
+          { pos: other.pos, vel: other.vel, width: other.width, height: other.height, radius: other.radius, mass: other.mass, shape: other.shape },
+        );
+
+        if (!result.hit) continue;
+
+        if (!other.isDebris && !other.isStatic) {
+          toBreak.push(other);
+          a.pos.x -= result.normal.x * result.depth * 0.5;
+          a.pos.y -= result.normal.y * result.depth * 0.5;
+          continue;
+        }
+        if (!other.isDebris && other.isStatic) {
+          toBreak.push(other);
+          a.pos.x -= result.normal.x * result.depth * 0.5;
+          a.pos.y -= result.normal.y * result.depth * 0.5;
+          continue;
+        }
+
+        const half = result.depth * 0.5;
+        a.pos.x -= result.normal.x * half;
+        a.pos.y -= result.normal.y * half;
+        other.pos.x += result.normal.x * half;
+        other.pos.y += result.normal.y * half;
+      }
+    }
+
+    const seen = new Set<number>();
+    for (const obs of toBreak) {
+      if (seen.has(obs.id)) continue;
+      seen.add(obs.id);
+      this.breakObstacleFromImpact(obs);
+    }
+  }
+
+  private breakObstacleFromImpact(obs: Obstacle): void {
+    const cos = Math.cos(obs.angle);
+    const sin = Math.sin(obs.angle);
+    const centerX = obs.pos.x;
+    const centerY = obs.pos.y;
+
+    if (obs.shape === "tower" || obs.shape === "pyramid") {
+      const positions3D = this.renderer.getBrick3DPositions(obs);
+      for (const bp of positions3D) {
+        const rotX = bp.x * cos - bp.z * sin;
+        const rotZ = bp.x * sin + bp.z * cos;
+        const worldX = centerX + rotX;
+        const worldY = centerY + rotZ - bp.y * 1.5;
+
+        const scatter = 50 + Math.random() * 70;
+        const angle = Math.atan2(rotZ, rotX) + (Math.random() - 0.5) * 1.5;
+        const vx = Math.cos(angle) * scatter + (Math.random() - 0.5) * 40;
+        const vy = Math.sin(angle) * scatter - bp.y * 2 + (Math.random() - 0.5) * 40;
+
+        this.spawner.addObstacle(createDebrisBrick(worldX, worldY, obs.color, vx, vy));
+      }
+    } else {
+      const brickPositions = this.renderer.getBrickPositions(obs);
+      for (const bp of brickPositions) {
+        const rotX = bp.x * cos - bp.z * sin;
+        const rotZ = bp.x * sin + bp.z * cos;
+        const worldX = centerX + rotX;
+        const worldY = centerY + rotZ;
+
+        const scatter = 60 + Math.random() * 80;
+        const angle = Math.atan2(rotZ, rotX) + (Math.random() - 0.5) * 1.5;
+        const vx = Math.cos(angle) * scatter + (Math.random() - 0.5) * 40;
+        const vy = Math.sin(angle) * scatter + (Math.random() - 0.5) * 40;
+
+        this.spawner.addObstacle(createDebrisBrick(worldX, worldY, obs.color, vx, vy));
+      }
+    }
+
+    this.spawner.removeObstacle(obs.id);
+    this.audio.playDeflect();
+  }
+
+  private breakObstacle(obs: Obstacle): void {
+    const cos = Math.cos(obs.angle);
+    const sin = Math.sin(obs.angle);
+    const dx = obs.pos.x - this.shield.pos.x;
+    const dy = obs.pos.y - this.shield.pos.y;
+    const impactAngle = Math.atan2(dy, dx);
+    const shieldSpeed = Math.sqrt(this.shield.vel.x ** 2 + this.shield.vel.y ** 2);
+    const baseForce = Math.max(shieldSpeed * 0.6, 120);
+
+    if (obs.shape === "tower" || obs.shape === "pyramid") {
+      const positions3D = this.renderer.getBrick3DPositions(obs);
+      for (const bp of positions3D) {
+        const rotX = bp.x * cos - bp.z * sin;
+        const rotZ = bp.x * sin + bp.z * cos;
+        const worldX = obs.pos.x + rotX;
+        const worldY = obs.pos.y + rotZ - bp.y * 1.5;
+
+        const scatter = baseForce + Math.random() * 80;
+        const angle = impactAngle + (Math.random() - 0.5) * 1.2;
+        const vx = Math.cos(angle) * scatter + (Math.random() - 0.5) * 60;
+        const vy = Math.sin(angle) * scatter - bp.y * 2 + (Math.random() - 0.5) * 60;
+
+        this.spawner.addObstacle(createDebrisBrick(worldX, worldY, obs.color, vx, vy));
+      }
+    } else {
+      const brickPositions = this.renderer.getBrickPositions(obs);
+      for (const bp of brickPositions) {
+        const rotX = bp.x * cos - bp.z * sin;
+        const rotZ = bp.x * sin + bp.z * cos;
+        const worldX = obs.pos.x + rotX;
+        const worldY = obs.pos.y + rotZ;
+
+        const scatter = baseForce + Math.random() * 80;
+        const angle = impactAngle + (Math.random() - 0.5) * 1.2;
+        const vx = Math.cos(angle) * scatter + (Math.random() - 0.5) * 60;
+        const vy = Math.sin(angle) * scatter + (Math.random() - 0.5) * 60;
+
+        this.spawner.addObstacle(createDebrisBrick(worldX, worldY, obs.color, vx, vy));
+      }
+    }
+
+    this.spawner.removeObstacle(obs.id);
+  }
+
   private testCollision(circlePos: Vec2, circleRadius: number, obs: Obstacle) {
     const circleBody = { pos: circlePos, vel: { x: 0, y: 0 }, radius: circleRadius, mass: 1 };
 
@@ -297,7 +442,7 @@ export class Game {
       }
       const obsBody = { pos: obs.pos, vel: obs.vel, radius: obs.radius, mass: obs.mass };
       return circleVsCircle(circleBody, obsBody);
-    } else if (obs.shape === "rect") {
+    } else if (obs.shape === "rect" || obs.shape === "tower" || obs.shape === "pyramid") {
       const rectBody = {
         pos: obs.pos,
         vel: obs.vel,
@@ -326,17 +471,30 @@ export class Game {
     this.renderer.clear();
     this.renderer.drawBackground();
 
-    if (this.state === "MENU") return;
+    if (this.state === "MENU") {
+      this.renderer.render();
+      return;
+    }
 
+    this.renderer.updateCameraPosition(this.camera.y);
     this.renderer.drawObstacles(this.spawner.getObstacles(), this.camera);
     this.renderer.drawParticles(this.particles.getParticles(), this.camera);
 
     if (this.balloon) {
       this.renderer.drawBalloon(this.balloon, this.camera);
     }
-    if (this.shield && this.state !== "GAME_OVER") {
-      this.renderer.drawShield(this.shield, this.balloon, this.camera);
+    this.renderer.hideShield();
+
+    if (this.shield && this.state !== "GAME_OVER" && this.shieldCursorEl) {
+      const sp = this.renderer.projectShieldToScreen(this.shield);
+      this.shieldCursorEl.style.left = `${sp.x}px`;
+      this.shieldCursorEl.style.top = `${sp.y}px`;
+      this.shieldCursorEl.classList.add("visible");
+    } else if (this.shieldCursorEl) {
+      this.shieldCursorEl.classList.remove("visible");
     }
+
+    this.renderer.render();
   }
 
   // ─── Settings ───

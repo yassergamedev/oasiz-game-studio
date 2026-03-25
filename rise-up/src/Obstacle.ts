@@ -26,6 +26,8 @@ export interface Obstacle {
   color: string;
   shadowOffset: number;
   cornerRadius: number;
+  isStatic: boolean;
+  isDebris: boolean;
 }
 
 let nextId = 0;
@@ -57,13 +59,51 @@ export function createObstacle(
     color: OBSTACLE_COLORS[colorIdx],
     shadowOffset: 3 + Math.random() * 2,
     cornerRadius: shape === "rect" ? 4 + Math.random() * 4 : 0,
+    isStatic: true,
+    isDebris: false,
   };
 }
 
-export function updateObstacle(obs: Obstacle, dt: number): void {
-  obs.vel.y += GRAVITY * dt;
+export function createDebrisBrick(
+  x: number,
+  y: number,
+  color: string,
+  vx: number,
+  vy: number,
+): Obstacle {
+  return {
+    id: nextId++,
+    shape: "rect",
+    pos: { x, y },
+    vel: { x: vx, y: vy },
+    width: 18,
+    height: 18,
+    radius: 0,
+    angle: Math.random() * Math.PI * 2,
+    angularVel: (Math.random() - 0.5) * 4,
+    mass: 1.2,
+    color,
+    shadowOffset: 2,
+    cornerRadius: 0,
+    isStatic: false,
+    isDebris: true,
+  };
+}
 
-  obs.vel.x *= Math.pow(OBSTACLE_FRICTION, dt * 60);
+const DEBRIS_FRICTION = 0.97;
+const DYNAMIC_FRICTION = 0.97;
+const DEBRIS_GRAVITY = 80;
+
+export function updateObstacle(obs: Obstacle, dt: number): void {
+  if (obs.isStatic) return;
+
+  const friction = obs.isDebris ? DEBRIS_FRICTION : DYNAMIC_FRICTION;
+  const fPow = Math.pow(friction, dt * 60);
+
+  obs.vel.x *= fPow;
+  obs.vel.y *= fPow;
+  obs.vel.y += DEBRIS_GRAVITY * dt;
+  obs.angularVel *= Math.pow(0.98, dt * 60);
 
   obs.pos.x += obs.vel.x * dt;
   obs.pos.y += obs.vel.y * dt;
@@ -92,6 +132,14 @@ export class ObstacleSpawner {
     this.screenWidth = screenWidth;
     this.currentTier = DIFFICULTY_TIERS[0];
     nextId = 0;
+  }
+
+  addObstacle(obs: Obstacle): void {
+    this.obstacles.push(obs);
+  }
+
+  removeObstacle(id: number): void {
+    this.obstacles = this.obstacles.filter((o) => o.id !== id);
   }
 
   update(dt: number, cameraY: number, balloonY: number, score: number): void {

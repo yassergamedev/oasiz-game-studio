@@ -57,7 +57,7 @@ export const SHIELD_PUSH_FORCE = 800;
 export const SHIELD_TETHER_LENGTH = 180;
 
 // ─── Obstacle Shapes ───
-export type ObstacleShape = "circle" | "rect" | "triangle" | "diamond" | "hexagon" | "plus" | "pill";
+export type ObstacleShape = "circle" | "rect" | "triangle" | "diamond" | "hexagon" | "plus" | "pill" | "tower" | "pyramid";
 
 export interface ObstacleDef {
   shape: ObstacleShape;
@@ -74,9 +74,9 @@ export const OBSTACLE_FRICTION = 0.98;
 export const OBSTACLE_RESTITUTION = 0.4;
 
 // ─── Spawning ───
-export const SPAWN_AHEAD_DISTANCE = 600;
+export const SPAWN_AHEAD_DISTANCE = 400;
 export const DESPAWN_BEHIND_DISTANCE = 400;
-export const MAX_OBSTACLES = 60;
+export const MAX_OBSTACLES = 50;
 
 // ─── Difficulty Tiers (score-based) ───
 export interface DifficultyTier {
@@ -94,7 +94,7 @@ export const DIFFICULTY_TIERS: DifficultyTier[] = [
   {
     name: "easy",
     minScore: 0,
-    spawnInterval: 1.4,
+    spawnInterval: 2.0,
     patternStart: 0,
     patternEnd: 5,
     scaleFactor: 1.0,
@@ -104,9 +104,9 @@ export const DIFFICULTY_TIERS: DifficultyTier[] = [
   {
     name: "medium",
     minScore: 10,
-    spawnInterval: 1.1,
+    spawnInterval: 1.7,
     patternStart: 0,
-    patternEnd: 15,
+    patternEnd: 19,
     scaleFactor: 1.05,
     massMultiplier: 1.1,
     speedMultiplier: 1.1,
@@ -114,9 +114,9 @@ export const DIFFICULTY_TIERS: DifficultyTier[] = [
   {
     name: "hard",
     minScore: 20,
-    spawnInterval: 0.85,
+    spawnInterval: 1.4,
     patternStart: 5,
-    patternEnd: 30,
+    patternEnd: 37,
     scaleFactor: 1.15,
     massMultiplier: 1.25,
     speedMultiplier: 1.25,
@@ -124,9 +124,9 @@ export const DIFFICULTY_TIERS: DifficultyTier[] = [
   {
     name: "expert",
     minScore: 30,
-    spawnInterval: 0.6,
+    spawnInterval: 1.1,
     patternStart: 10,
-    patternEnd: 40,
+    patternEnd: 50,
     scaleFactor: 1.25,
     massMultiplier: 1.4,
     speedMultiplier: 1.4,
@@ -134,9 +134,9 @@ export const DIFFICULTY_TIERS: DifficultyTier[] = [
   {
     name: "insane",
     minScore: 40,
-    spawnInterval: 0.45,
+    spawnInterval: 0.8,
     patternStart: 15,
-    patternEnd: 40,
+    patternEnd: 50,
     scaleFactor: 1.35,
     massMultiplier: 1.6,
     speedMultiplier: 1.6,
@@ -145,11 +145,17 @@ export const DIFFICULTY_TIERS: DifficultyTier[] = [
 
 // ─── Colors ───
 export const OBSTACLE_COLORS = [
-  "#ffffff", "#f0f0f0", "#e8e8e8", "#f5f5f5",
-  "#ebebeb", "#f8f8f8", "#ededed", "#f2f2f2",
+  "#ff1a1a", // Vibrant Red
+  "#1a8aff", // Vibrant Blue
+  "#ffdd00", // Vibrant Yellow
+  "#00cc44", // Vibrant Green
+  "#ff8800", // Vibrant Orange
+  "#cc22aa", // Vibrant Magenta
+  "#00ddcc", // Vibrant Teal
+  "#ff66aa", // Vibrant Pink
 ];
 
-export const BG_COLOR = "#87CEEB";
+export const BG_COLOR = "#7EECD4";
 
 // ─── Wave Patterns ───
 export interface WavePattern {
@@ -191,26 +197,25 @@ export const WAVE_PATTERNS: WavePattern[] = [
       { shape: "circle", xRatio: 0.8, yOffset: 0, width: 0, height: 0, radius: 18, mass: 1.5 },
     ],
   },
-  // Single diamond
+  // Small tower
   {
     obstacles: [
-      { shape: "diamond", xRatio: 0.5, yOffset: 0, width: 50, height: 60, radius: 0, mass: 2 },
+      { shape: "tower", xRatio: 0.5, yOffset: 0, width: 30, height: 60, radius: 0, mass: 3 },
     ],
   },
-  // Pair of pills
+  // Small pyramid
   {
     obstacles: [
-      { shape: "pill", xRatio: 0.3, yOffset: 0, width: 70, height: 24, radius: 0, mass: 2 },
-      { shape: "pill", xRatio: 0.7, yOffset: -20, width: 70, height: 24, radius: 0, mass: 2 },
+      { shape: "pyramid", xRatio: 0.5, yOffset: 0, width: 60, height: 45, radius: 0, mass: 3 },
     ],
   },
 
   // ─── MEDIUM (indices 5-14) ───
 
-  // Wide bar
+  // Single tower
   {
     obstacles: [
-      { shape: "rect", xRatio: 0.5, yOffset: 0, width: 180, height: 20, radius: 0, mass: 4 },
+      { shape: "tower", xRatio: 0.5, yOffset: 0, width: 40, height: 80, radius: 0, mass: 4 },
     ],
   },
   // Narrow gap
@@ -239,6 +244,12 @@ export const WAVE_PATTERNS: WavePattern[] = [
       { shape: "rect", xRatio: 0.7, yOffset: -24, width: 50, height: 18, radius: 0, mass: 2 },
     ],
   },
+  // Small pyramid
+  {
+    obstacles: [
+      { shape: "pyramid", xRatio: 0.5, yOffset: 0, width: 80, height: 60, radius: 0, mass: 5 },
+    ],
+  },
   // Diagonal scatter
   {
     obstacles: [
@@ -247,12 +258,26 @@ export const WAVE_PATTERNS: WavePattern[] = [
       { shape: "circle", xRatio: 0.8, yOffset: -80, width: 0, height: 0, radius: 16, mass: 1.2 },
     ],
   },
-  // Triangle formation
+  // Twin small towers
   {
     obstacles: [
-      { shape: "triangle", xRatio: 0.5, yOffset: 0, width: 50, height: 45, radius: 0, mass: 2 },
-      { shape: "triangle", xRatio: 0.3, yOffset: -50, width: 40, height: 35, radius: 0, mass: 1.5 },
-      { shape: "triangle", xRatio: 0.7, yOffset: -50, width: 40, height: 35, radius: 0, mass: 1.5 },
+      { shape: "tower", xRatio: 0.3, yOffset: 0, width: 30, height: 70, radius: 0, mass: 3.5 },
+      { shape: "tower", xRatio: 0.7, yOffset: 0, width: 30, height: 70, radius: 0, mass: 3.5 },
+    ],
+  },
+  // Pyramid with side blocks
+  {
+    obstacles: [
+      { shape: "pyramid", xRatio: 0.5, yOffset: 0, width: 70, height: 55, radius: 0, mass: 4 },
+      { shape: "rect", xRatio: 0.15, yOffset: 0, width: 40, height: 20, radius: 0, mass: 1.5 },
+      { shape: "rect", xRatio: 0.85, yOffset: 0, width: 40, height: 20, radius: 0, mass: 1.5 },
+    ],
+  },
+  // Tower and pyramid pair
+  {
+    obstacles: [
+      { shape: "tower", xRatio: 0.35, yOffset: 0, width: 30, height: 75, radius: 0, mass: 4 },
+      { shape: "pyramid", xRatio: 0.7, yOffset: 0, width: 65, height: 50, radius: 0, mass: 3.5 },
     ],
   },
   // Hexagon cluster
@@ -388,13 +413,25 @@ export const WAVE_PATTERNS: WavePattern[] = [
       { shape: "hexagon", xRatio: 0.85, yOffset: 0, width: 0, height: 0, radius: 20, mass: 2 },
     ],
   },
-  // Tower - vertical stack
+  // Twin towers
   {
     obstacles: [
-      { shape: "rect", xRatio: 0.5, yOffset: 0, width: 50, height: 20, radius: 0, mass: 2 },
-      { shape: "rect", xRatio: 0.5, yOffset: -24, width: 50, height: 20, radius: 0, mass: 2 },
-      { shape: "rect", xRatio: 0.5, yOffset: -48, width: 50, height: 20, radius: 0, mass: 2 },
-      { shape: "triangle", xRatio: 0.5, yOffset: -72, width: 55, height: 30, radius: 0, mass: 1.5 },
+      { shape: "tower", xRatio: 0.3, yOffset: 0, width: 35, height: 90, radius: 0, mass: 5 },
+      { shape: "tower", xRatio: 0.7, yOffset: 0, width: 35, height: 90, radius: 0, mass: 5 },
+    ],
+  },
+  // Large pyramid
+  {
+    obstacles: [
+      { shape: "pyramid", xRatio: 0.5, yOffset: 0, width: 120, height: 90, radius: 0, mass: 8 },
+    ],
+  },
+  // Tower with flanking blocks
+  {
+    obstacles: [
+      { shape: "tower", xRatio: 0.5, yOffset: 0, width: 40, height: 100, radius: 0, mass: 6 },
+      { shape: "rect", xRatio: 0.2, yOffset: 0, width: 50, height: 25, radius: 0, mass: 2 },
+      { shape: "rect", xRatio: 0.8, yOffset: 0, width: 50, height: 25, radius: 0, mass: 2 },
     ],
   },
 
@@ -492,7 +529,33 @@ export const WAVE_PATTERNS: WavePattern[] = [
       { shape: "circle", xRatio: 0.8, yOffset: -60, width: 0, height: 0, radius: 16, mass: 1.5 },
     ],
   },
+  // Pyramid fortress
+  {
+    obstacles: [
+      { shape: "pyramid", xRatio: 0.3, yOffset: 0, width: 90, height: 70, radius: 0, mass: 6 },
+      { shape: "pyramid", xRatio: 0.7, yOffset: 0, width: 90, height: 70, radius: 0, mass: 6 },
+    ],
+  },
+  // Tower gauntlet
+  {
+    obstacles: [
+      { shape: "tower", xRatio: 0.15, yOffset: 0, width: 30, height: 80, radius: 0, mass: 4 },
+      { shape: "tower", xRatio: 0.4, yOffset: -30, width: 30, height: 100, radius: 0, mass: 5 },
+      { shape: "tower", xRatio: 0.65, yOffset: -15, width: 30, height: 90, radius: 0, mass: 4.5 },
+      { shape: "tower", xRatio: 0.85, yOffset: -45, width: 30, height: 70, radius: 0, mass: 3.5 },
+    ],
+  },
+  // Pyramid with tower crown
+  {
+    obstacles: [
+      { shape: "pyramid", xRatio: 0.5, yOffset: 0, width: 140, height: 100, radius: 0, mass: 10 },
+      { shape: "tower", xRatio: 0.5, yOffset: -90, width: 30, height: 60, radius: 0, mass: 3 },
+    ],
+  },
 ];
+
+// ─── Floor ───
+export const FLOOR_SCROLL_DIVISOR = 1000;
 
 // ─── Score Config ───
 export const SCORE_ANCHORS = [

@@ -327,3 +327,84 @@ export function pointInCircle(point: Vec2, center: Vec2, radius: number): boolea
   const dy = point.y - center.y;
   return dx * dx + dy * dy <= radius * radius;
 }
+
+function getObstacleBounds(pos: Vec2, width: number, height: number, radius: number, shape: string): { minX: number; maxX: number; minY: number; maxY: number } {
+  if (shape === "circle" || shape === "hexagon") {
+    const r = radius;
+    return { minX: pos.x - r, maxX: pos.x + r, minY: pos.y - r, maxY: pos.y + r };
+  }
+  if (shape === "pill") {
+    const hw = Math.max(width, height) / 2;
+    return { minX: pos.x - hw, maxX: pos.x + hw, minY: pos.y - hw, maxY: pos.y + hw };
+  }
+  const hw = width / 2;
+  const hh = height / 2;
+  return { minX: pos.x - hw, maxX: pos.x + hw, minY: pos.y - hh, maxY: pos.y + hh };
+}
+
+export interface ObstacleCollisionBody {
+  pos: Vec2;
+  vel: Vec2;
+  width: number;
+  height: number;
+  radius: number;
+  mass: number;
+  shape: string;
+}
+
+export function testObstacleVsObstacle(a: ObstacleCollisionBody, b: ObstacleCollisionBody): CollisionResult {
+  const boundsA = getObstacleBounds(a.pos, a.width, a.height, a.radius, a.shape);
+  const boundsB = getObstacleBounds(b.pos, b.width, b.height, b.radius, b.shape);
+
+  const overlapX = Math.min(boundsA.maxX, boundsB.maxX) - Math.max(boundsA.minX, boundsB.minX);
+  const overlapY = Math.min(boundsA.maxY, boundsB.maxY) - Math.max(boundsA.minY, boundsB.minY);
+
+  if (overlapX <= 0 || overlapY <= 0) {
+    return { hit: false, normal: { x: 0, y: 0 }, depth: 0 };
+  }
+
+  const dx = b.pos.x - a.pos.x;
+  const dy = b.pos.y - a.pos.y;
+
+  let normal: Vec2;
+  let depth: number;
+
+  if (overlapX < overlapY) {
+    depth = overlapX;
+    normal = { x: dx > 0 ? 1 : -1, y: 0 };
+  } else {
+    depth = overlapY;
+    normal = { x: 0, y: dy > 0 ? 1 : -1 };
+  }
+
+  return { hit: true, normal, depth };
+}
+
+export function resolveObstacleCollision(
+  a: ObstacleCollisionBody,
+  b: ObstacleCollisionBody,
+  normal: Vec2,
+  depth: number,
+  restitution: number,
+): void {
+  const totalMass = a.mass + b.mass;
+  const aRatio = b.mass / totalMass;
+  const bRatio = a.mass / totalMass;
+
+  a.pos.x -= normal.x * depth * aRatio;
+  a.pos.y -= normal.y * depth * aRatio;
+  b.pos.x += normal.x * depth * bRatio;
+  b.pos.y += normal.y * depth * bRatio;
+
+  const relVel = vec2Sub(a.vel, b.vel);
+  const velAlongNormal = vec2Dot(relVel, normal);
+
+  if (velAlongNormal > 0) return;
+
+  const j = -(1 + restitution) * velAlongNormal / totalMass;
+
+  a.vel.x += normal.x * j * b.mass;
+  a.vel.y += normal.y * j * b.mass;
+  b.vel.x -= normal.x * j * a.mass;
+  b.vel.y -= normal.y * j * a.mass;
+}

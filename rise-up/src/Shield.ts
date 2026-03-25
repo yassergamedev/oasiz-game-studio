@@ -114,10 +114,8 @@ export class InputHandler {
 
   private onPointerMove(clientX: number, clientY: number): void {
     const rect = this.canvas.getBoundingClientRect();
-    const scaleX = this.canvas.width / rect.width;
-    const scaleY = this.canvas.height / rect.height;
-    const screenX = (clientX - rect.left) * scaleX;
-    const screenY = (clientY - rect.top) * scaleY;
+    const screenX = clientX - rect.left;
+    const screenY = clientY - rect.top;
 
     this.shield.targetScreenX = screenX;
     this.shield.targetScreenY = screenY;
