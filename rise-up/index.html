@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>Rise Up</title>
+  <link href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Quicksand:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%; height: 100%; overflow: hidden;
+      background: #1a1a2e; font-family: 'Quicksand', sans-serif;
+      color: #333; touch-action: none;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .hidden { display: none !important; }
+
+    #game-wrapper {
+      position: relative; overflow: hidden;
+      aspect-ratio: 9 / 16;
+      max-width: 100vw;
+      max-height: 100vh;
+      width: auto;
+      height: 100vh;
+    }
+    @media (min-aspect-ratio: 9/16) {
+      #game-wrapper {
+        width: auto;
+        height: 100vh;
+      }
+    }
+    @media (max-aspect-ratio: 9/16) {
+      #game-wrapper {
+        width: 100vw;
+        height: auto;
+      }
+    }
+    /* Mobile: force full screen, no aspect ratio constraint */
+    @media (pointer: coarse) {
+      #game-wrapper {
+        aspect-ratio: unset;
+        width: 100vw;
+        height: 100vh;
+        max-width: 100vw;
+        max-height: 100vh;
+      }
+    }
+    #game-canvas { width: 100%; height: 100%; display: block; }
+
+    /* ─── Lego Brick Button ─── */
+    .lego-btn {
+      position: relative; border: none; cursor: pointer;
+      font-family: 'Lilita One', 'Quicksand', sans-serif;
+      font-size: 1.3rem; letter-spacing: 2px; text-transform: uppercase;
+      color: #fff; padding: 18px 56px;
+      border-radius: 10px;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .lego-btn::before {
+      content: '';
+      position: absolute; top: -6px; left: 50%; transform: translateX(-50%);
+      width: 20px; height: 6px; border-radius: 4px 4px 0 0;
+      background: inherit; filter: brightness(1.15);
+    }
+    .lego-btn::after {
+      content: '';
+      position: absolute; bottom: -4px; left: 0; right: 0; height: 4px;
+      border-radius: 0 0 10px 10px;
+      background: rgba(0,0,0,0.2);
+    }
+    .lego-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.25); }
+    .lego-btn:active { transform: translateY(1px); box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
+
+    .lego-btn-red { background: #e3000b; box-shadow: 0 4px 12px rgba(227,0,11,0.4); }
+    .lego-btn-blue { background: #0057a8; box-shadow: 0 4px 12px rgba(0,87,168,0.4); }
+    .lego-btn-green { background: #00852b; box-shadow: 0 4px 12px rgba(0,133,43,0.4); }
+    .lego-btn-yellow { background: #f5c500; color: #333; box-shadow: 0 4px 12px rgba(245,197,0,0.4); }
+    .lego-btn-outline {
+      background: transparent; border: 3px solid rgba(255,255,255,0.6);
+      box-shadow: none; padding: 12px 36px; font-size: 1rem;
+    }
+    .lego-btn-outline:hover { border-color: #fff; box-shadow: 0 4px 12px rgba(255,255,255,0.2); }
+
+    /* ─── Lego Stud ─── */
+    .lego-stud {
+      width: 28px; height: 28px; border-radius: 50%;
+      border: 3px solid rgba(255,255,255,0.3);
+      background: rgba(255,255,255,0.08);
+    }
+    .lego-studs {
+      display: flex; gap: 8px; justify-content: center;
+      margin-bottom: 24px;
+    }
+
+    /* ─── Menu Screen ─── */
+    #menu-screen {
+      position: absolute; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      background: linear-gradient(180deg, #0057a8 0%, #003d7a 100%);
+      z-index: 100; transition: opacity 0.4s ease;
+    }
+    #menu-screen.fade-out { opacity: 0; pointer-events: none; }
+
+    .menu-brick-row {
+      display: flex; gap: 6px; margin-bottom: 32px;
+    }
+    .menu-brick {
+      width: 40px; height: 28px; border-radius: 4px; position: relative;
+      animation: menuFloat 3s ease-in-out infinite;
+    }
+    .menu-brick::after {
+      content: ''; position: absolute; top: -5px;
+      left: 50%; transform: translateX(-50%);
+      width: 14px; height: 5px; border-radius: 3px 3px 0 0;
+      background: inherit; filter: brightness(1.2);
+    }
+    .menu-brick:nth-child(1) { background: #e3000b; animation-delay: 0s; }
+    .menu-brick:nth-child(2) { background: #f5c500; animation-delay: 0.15s; }
+    .menu-brick:nth-child(3) { background: #00852b; animation-delay: 0.3s; }
+    .menu-brick:nth-child(4) { background: #ff6f00; animation-delay: 0.45s; }
+    .menu-brick:nth-child(5) { background: #0057a8; animation-delay: 0.6s; }
+    @keyframes menuFloat {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-10px); }
+    }
+
+    #menu-screen h1 {
+      font-family: 'Lilita One', sans-serif;
+      font-size: 3.6rem; font-weight: 400; letter-spacing: 4px;
+      text-transform: uppercase; margin-bottom: 0.2rem;
+      color: #f5c500;
+      text-shadow: 3px 3px 0 #e3000b, 0 0 20px rgba(245,197,0,0.3);
+    }
+    .menu-subtitle {
+      font-size: 1rem; font-weight: 600; opacity: 0.7;
+      margin-bottom: 2.5rem; text-align: center; padding: 0 20px;
+      color: rgba(255,255,255,0.8);
+    }
+
+    .menu-best {
+      margin-top: 1.2rem; font-size: 0.9rem; font-weight: 700; opacity: 0.6;
+      color: rgba(255,255,255,0.7);
+    }
+
+    /* ─── HUD ─── */
+    #hud {
+      position: absolute; top: 0; left: 0; right: 0;
+      display: flex; justify-content: center; align-items: center;
+      padding-top: 50px; pointer-events: none; z-index: 20;
+    }
+    @media (pointer: coarse) {
+      #hud { padding-top: 125px; }
+    }
+    #score-display {
+      font-family: 'Lilita One', sans-serif;
+      font-size: 2rem; font-weight: 400; letter-spacing: 2px;
+      color: #000000;
+      text-shadow: 2px 2px 0 rgba(0,0,0,0.15);
+    }
+
+    /* ─── Game Over ─── */
+    #game-over-screen {
+      position: absolute; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      background: linear-gradient(180deg, rgba(227,0,11,0.92) 0%, rgba(160,0,8,0.95) 100%);
+      z-index: 100; opacity: 0; transition: opacity 0.5s ease;
+      pointer-events: none;
+    }
+    #game-over-screen.visible { opacity: 1; pointer-events: auto; }
+
+    .game-over-title {
+      font-family: 'Lilita One', sans-serif;
+      font-size: 2.4rem; font-weight: 400; letter-spacing: 3px;
+      text-transform: uppercase; margin-bottom: 0.5rem;
+      color: #f5c500;
+      text-shadow: 2px 2px 0 rgba(0,0,0,0.2);
+    }
+    .game-over-score {
+      font-family: 'Lilita One', sans-serif;
+      font-size: 5rem; font-weight: 400; margin-bottom: 0.2rem;
+      color: #ffffff;
+      text-shadow: 3px 3px 0 rgba(0,0,0,0.15);
+      line-height: 1;
+    }
+    .game-over-best {
+      font-size: 1rem; font-weight: 700; opacity: 0.7; margin-bottom: 2rem;
+      color: rgba(255,255,255,0.8);
+    }
+    #game-over-screen .lego-btn {
+      margin-bottom: 12px;
+    }
+    .game-over-new-best {
+      font-family: 'Lilita One', sans-serif;
+      font-size: 1rem; font-weight: 400; color: #f5c500;
+      margin-top: 0.3rem; margin-bottom: 0.5rem;
+      text-transform: uppercase; letter-spacing: 2px;
+      text-shadow: 1px 1px 0 rgba(0,0,0,0.2);
+    }
+
+    .go-brick-row {
+      display: flex; gap: 4px; margin-bottom: 20px;
+    }
+    .go-brick {
+      width: 24px; height: 18px; border-radius: 3px; position: relative;
+      opacity: 0.5;
+    }
+    .go-brick::after {
+      content: ''; position: absolute; top: -4px;
+      left: 50%; transform: translateX(-50%);
+      width: 10px; height: 4px; border-radius: 2px 2px 0 0;
+      background: inherit; filter: brightness(1.2);
+    }
+    .go-brick:nth-child(1) { background: #f5c500; }
+    .go-brick:nth-child(2) { background: #0057a8; }
+    .go-brick:nth-child(3) { background: #00852b; }
+    .go-brick:nth-child(4) { background: #ff6f00; }
+    .go-brick:nth-child(5) { background: #f5c500; }
+
+    /* ─── Settings Button ─── */
+    #settings-btn {
+      position: absolute; top: 45px; right: 16px;
+      width: 44px; height: 44px; border-radius: 8px;
+      background: rgba(0,0,0,0.25); border: 2px solid rgba(255,255,255,0.2);
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      z-index: 50;
+      transition: all 0.2s ease;
+    }
+    @media (pointer: coarse) {
+      #settings-btn { top: 120px; }
+    }
+    #settings-btn:hover { background: rgba(0,0,0,0.35); border-color: rgba(255,255,255,0.4); }
+    #settings-btn svg { width: 22px; height: 22px; fill: rgba(255,255,255,0.7); }
+
+    /* ─── Settings Modal ─── */
+    #settings-modal {
+      position: absolute; top: 95px; right: 16px;
+      width: 210px; padding: 16px;
+      background: #0057a8;
+      border-radius: 12px; border: 2px solid rgba(255,255,255,0.2);
+      z-index: 55; display: none;
+    }
+    @media (pointer: coarse) {
+      #settings-modal { top: 170px; }
+    }
+    #settings-modal.visible { display: block; }
+
+    .settings-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 0; font-size: 0.85rem; font-weight: 700;
+      color: rgba(255,255,255,0.9);
+    }
+    .settings-row + .settings-row { border-top: 1px solid rgba(255,255,255,0.15); }
+
+    .toggle-btn {
+      width: 44px; height: 26px; border-radius: 13px;
+      background: rgba(255,255,255,0.2); border: none;
+      cursor: pointer; position: relative; transition: background 0.2s;
+    }
+    .toggle-btn.on { background: #f5c500; }
+    .toggle-btn::after {
+      content: ''; position: absolute; top: 3px; left: 3px;
+      width: 20px; height: 20px; border-radius: 50%;
+      background: #fff; transition: transform 0.2s;
+    }
+    .toggle-btn.on::after { transform: translateX(18px); }
+
+    /* ─── Shield Cursor ─── */
+    #shield-cursor {
+      position: absolute; pointer-events: none; z-index: 15;
+      width: 56px; height: 56px;
+      border: 3px solid #ffffff;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      opacity: 0;
+      transition: opacity 0.2s ease;
+    }
+    #shield-cursor.visible { opacity: 1; }
+
+    /* ─── Pause Overlay ─── */
+    #pause-overlay {
+      position: absolute; inset: 0; display: flex;
+      flex-direction: column; gap: 16px;
+      align-items: center; justify-content: center;
+      background: linear-gradient(180deg, rgba(0,87,168,0.92) 0%, rgba(0,57,120,0.95) 100%);
+      z-index: 90; visibility: hidden; opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+    #pause-overlay.visible { visibility: visible; opacity: 1; }
+    .pause-text {
+      font-family: 'Lilita One', sans-serif;
+      font-size: 2.8rem; font-weight: 400; letter-spacing: 4px;
+      text-transform: uppercase; color: #f5c500;
+      text-shadow: 3px 3px 0 rgba(0,0,0,0.2);
+    }
+    .pause-sub {
+      font-size: 1rem; font-weight: 600; color: rgba(255,255,255,0.6);
+    }
+  </style>
+</head>
+<body>
+  <div id="game-wrapper">
+    <canvas id="game-canvas"></canvas>
+
+    <!-- Menu Screen -->
+    <div id="menu-screen">
+      <div class="menu-brick-row">
+        <div class="menu-brick"></div>
+        <div class="menu-brick"></div>
+        <div class="menu-brick"></div>
+        <div class="menu-brick"></div>
+        <div class="menu-brick"></div>
+      </div>
+      <h1>Rise Up</h1>
+      <p class="menu-subtitle">Smash through the bricks. Protect the balloon.</p>
+      <button id="start-btn" class="lego-btn lego-btn-red">Play</button>
+      <p class="menu-best" id="menu-best"></p>
+    </div>
+
+    <!-- HUD -->
+    <div id="hud" class="hidden">
+      <div id="score-display">0</div>
+    </div>
+
+    <!-- Game Over -->
+    <div id="game-over-screen">
+      <div class="go-brick-row">
+        <div class="go-brick"></div>
+        <div class="go-brick"></div>
+        <div class="go-brick"></div>
+        <div class="go-brick"></div>
+        <div class="go-brick"></div>
+      </div>
+      <p class="game-over-title">Bricked!</p>
+      <p class="game-over-score" id="go-score">0</p>
+      <p class="game-over-new-best hidden" id="go-new-best">New Best!</p>
+      <p class="game-over-best" id="go-best">Best: 0</p>
+      <button id="retry-btn" class="lego-btn lego-btn-yellow">Rebuild</button>
+      <button id="menu-btn" class="lego-btn lego-btn-outline">Menu</button>
+    </div>
+
+    <!-- Settings Button -->
+    <button id="settings-btn" class="hidden">
+      <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.48.48 0 00-.48-.41h-3.84a.48.48 0 00-.48.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.74 8.87a.48.48 0 00.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.26.41.48.41h3.84c.24 0 .44-.17.48-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1112 8.4a3.6 3.6 0 010 7.2z"/></svg>
+    </button>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal">
+      <div class="settings-row">
+        <span>Music</span>
+        <button class="toggle-btn on" id="toggle-music"></button>
+      </div>
+      <div class="settings-row">
+        <span>FX</span>
+        <button class="toggle-btn on" id="toggle-fx"></button>
+      </div>
+      <div class="settings-row">
+        <span>Haptics</span>
+        <button class="toggle-btn on" id="toggle-haptics"></button>
+      </div>
+    </div>
+
+    <!-- Shield Cursor -->
+    <div id="shield-cursor"></div>
+
+    <!-- Pause Overlay -->
+    <div id="pause-overlay">
+      <p class="pause-text">Paused</p>
+      <p class="pause-sub">Press P to resume</p>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

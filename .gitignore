@@ -17,17 +17,11 @@ Thumbs.db
 *.swp
 *.swo
 
+
+
 # Local env files
 .env
 .env.local
 .env.*.local
 
-# Assets
-assets/
-audio/
 
-# Track asset folders inside Astro Party only
-!astro-party/**/asset/
-!astro-party/**/asset/**
-!astro-party/**/assets/
-!astro-party/**/assets/**
