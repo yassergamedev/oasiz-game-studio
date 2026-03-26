@@ -2,13 +2,10 @@ import {
   type Vec2,
   type ObstacleShape,
   type DifficultyTier,
-  GRAVITY,
-  OBSTACLE_FRICTION,
   OBSTACLE_COLORS,
   WAVE_PATTERNS,
   SPAWN_AHEAD_DISTANCE,
   DESPAWN_BEHIND_DISTANCE,
-  MAX_OBSTACLES,
   DIFFICULTY_TIERS,
 } from "./constants.ts";
 
@@ -203,9 +200,9 @@ export class ObstacleSpawner {
     return this.currentTier;
   }
 
-  reset(screenWidth: number, balloonY: number): void {
+  reset(screenWidth: number, balloonY: number, screenHeight: number): void {
     this.obstacles = [];
-    this.nextSpawnY = balloonY - 150;
+    this.nextSpawnY = balloonY - screenHeight - 100;
     this.screenWidth = screenWidth;
     this.currentTier = DIFFICULTY_TIERS[0];
     nextId = 0;
@@ -219,16 +216,20 @@ export class ObstacleSpawner {
     this.obstacles = this.obstacles.filter((o) => o.id !== id);
   }
 
-  update(dt: number, cameraY: number, balloonY: number, score: number, screenWidth?: number): void {
+  update(dt: number, cameraTopY: number, cameraBottomY: number, balloonY: number, score: number, screenWidth?: number): void {
     if (screenWidth !== undefined) {
       this.screenWidth = screenWidth;
     }
     this.currentTier = this.getTierForScore(score);
 
     const spawnHorizon = balloonY - SPAWN_AHEAD_DISTANCE;
+    const offScreenY = cameraTopY - 80;
+
     let safety = 0;
-    while (this.nextSpawnY >= spawnHorizon && this.obstacles.length < MAX_OBSTACLES && safety < 10) {
-      this.spawnWave(this.nextSpawnY);
+    while (this.nextSpawnY >= spawnHorizon && this.obstacles.length < this.currentTier.maxObstacles && safety < 10) {
+      if (this.nextSpawnY < offScreenY) {
+        this.spawnWave(this.nextSpawnY);
+      }
       this.nextSpawnY -= this.currentTier.spawnDistance;
       safety++;
     }
@@ -237,7 +238,7 @@ export class ObstacleSpawner {
       updateObstacle(obs, dt);
     }
 
-    const despawnY = cameraY + DESPAWN_BEHIND_DISTANCE;
+    const despawnY = cameraBottomY + DESPAWN_BEHIND_DISTANCE;
     this.obstacles = this.obstacles.filter((obs) => obs.pos.y < despawnY);
   }
 
@@ -260,11 +261,13 @@ export class ObstacleSpawner {
 
     const pattern = available[Math.floor(Math.random() * available.length)];
 
-    const existingBounds = this.obstacles
+    const priorBounds = this.obstacles
       .filter((o) => !o.isDebris)
       .map((o) => getObstacleBounds(o.pos.x, o.pos.y, o.width, o.height, o.radius, o.shape));
 
-    const OVERLAP_PAD = 20;
+    const OVERLAP_PAD = 30;
+
+    const waveCandidates: Array<{ obs: Obstacle; bounds: { cx: number; cy: number; halfW: number; halfH: number } }> = [];
 
     for (const def of pattern.obstacles) {
       const x = def.xRatio * this.screenWidth;
@@ -277,7 +280,7 @@ export class ObstacleSpawner {
 
       const newBounds = getObstacleBounds(x, y, w, h, r, def.shape);
       let overlaps = false;
-      for (const eb of existingBounds) {
+      for (const eb of priorBounds) {
         if (boundsOverlap(newBounds, eb, OVERLAP_PAD)) {
           overlaps = true;
           break;
@@ -290,8 +293,14 @@ export class ObstacleSpawner {
       const angVel = (def.angularVel || 0) * tier.speedMultiplier;
 
       const obs = createObstacle(def.shape, x, y, w, h, r, mass, vx, vy, angVel);
-      this.obstacles.push(obs);
-      existingBounds.push(getObstacleBounds(obs.pos.x, obs.pos.y, obs.width, obs.height, obs.radius, obs.shape));
+      waveCandidates.push({ obs, bounds: getObstacleBounds(obs.pos.x, obs.pos.y, obs.width, obs.height, obs.radius, obs.shape) });
+    }
+
+    if (waveCandidates.length === 0) return;
+
+    for (const c of waveCandidates) {
+      this.obstacles.push(c.obs);
+      priorBounds.push(c.bounds);
     }
   }
 }

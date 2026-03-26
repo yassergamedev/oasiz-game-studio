@@ -12,7 +12,7 @@ export interface ShieldState {
   targetScreenY: number;
   active: boolean;
   glowIntensity: number;
-  useUnprojectedTarget: boolean;
+  renderer: Renderer | null;
 }
 
 export function createShield(x: number, y: number): ShieldState {
@@ -26,12 +26,18 @@ export function createShield(x: number, y: number): ShieldState {
     targetScreenY: 0,
     active: false,
     glowIntensity: 0,
-    useUnprojectedTarget: false,
+    renderer: null,
   };
 }
 
 export function refreshShieldTarget(shield: ShieldState, camera: CameraState): void {
-  if (shield.active && !shield.useUnprojectedTarget) {
+  if (!shield.active) return;
+
+  if (shield.renderer) {
+    const { gameX, gameY } = shield.renderer.unprojectScreenToGame(shield.targetScreenX, shield.targetScreenY);
+    shield.targetPos.x = gameX;
+    shield.targetPos.y = gameY;
+  } else {
     shield.targetPos.x = shield.targetScreenX;
     shield.targetPos.y = screenToWorld(shield.targetScreenY, camera.y);
   }
@@ -78,6 +84,9 @@ export class InputHandler {
   }
 
   rebind(shield: ShieldState): void {
+    if (this.renderer) {
+      shield.renderer = this.renderer;
+    }
     this.shield = shield;
     this.touching = false;
   }
@@ -88,6 +97,7 @@ export class InputHandler {
 
   setRenderer(renderer: Renderer): void {
     this.renderer = renderer;
+    this.shield.renderer = renderer;
   }
 
   private bindEvents(): void {
@@ -122,23 +132,8 @@ export class InputHandler {
 
   private onPointerMove(clientX: number, clientY: number): void {
     const rect = this.canvas.getBoundingClientRect();
-    const screenX = clientX - rect.left;
-    const screenY = clientY - rect.top;
-
-    if (this.renderer) {
-      const { gameX, gameY } = this.renderer.unprojectScreenToGame(screenX, screenY);
-      this.shield.targetScreenX = gameX;
-      this.shield.targetScreenY = screenY;
-      this.shield.targetPos.x = gameX;
-      this.shield.targetPos.y = gameY;
-      this.shield.useUnprojectedTarget = true;
-    } else {
-      this.shield.targetScreenX = screenX;
-      this.shield.targetScreenY = screenY;
-      this.shield.targetPos.x = screenX;
-      this.shield.targetPos.y = this.camera ? screenToWorld(screenY, this.camera.y) : screenY;
-      this.shield.useUnprojectedTarget = false;
-    }
+    this.shield.targetScreenX = clientX - rect.left;
+    this.shield.targetScreenY = clientY - rect.top;
   }
 
   private onPointerUp(): void {

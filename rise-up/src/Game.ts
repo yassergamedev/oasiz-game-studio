@@ -4,7 +4,6 @@ import {
   type GameState as AppGameState,
   type Vec2,
   SHIELD_PUSH_FORCE,
-  OBSTACLE_RESTITUTION,
   SCORE_ANCHORS,
 } from "./constants.ts";
 import { type BalloonState, createBalloon, updateBalloon, popBalloon, getScore } from "./Balloon.ts";
@@ -27,7 +26,6 @@ import {
   getHexagonVerts,
   resolveShieldObstacleCollision,
   testObstacleVsObstacle,
-  resolveObstacleCollision,
 } from "./Physics.ts";
 
 export class Game {
@@ -120,7 +118,7 @@ export class Game {
     }
     this.inputHandler.setCamera(this.camera);
 
-    this.spawner.reset(w, this.balloon.pos.y);
+    this.spawner.reset(w, this.balloon.pos.y, h);
     this.particles.reset();
     this.renderer.clearObstacles();
 
@@ -204,7 +202,9 @@ export class Game {
     updateShield(this.shield, dt);
 
     this.score = getScore(this.balloon, this.startY);
-    this.spawner.update(dt, this.camera.y + this.renderer.height, this.balloon.pos.y, this.score, this.renderer.width);
+    const cameraTopY = this.camera.y;
+    const cameraBottomY = this.camera.y + this.renderer.height;
+    this.spawner.update(dt, cameraTopY, cameraBottomY, this.balloon.pos.y, this.score, this.renderer.width);
 
     this.resolveCollisions();
     this.hud.updateScore(this.score);

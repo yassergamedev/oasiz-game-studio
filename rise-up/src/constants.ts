@@ -4,16 +4,6 @@ export interface Vec2 {
   y: number;
 }
 
-export function vec2(x: number, y: number): Vec2 {
-  return { x, y };
-}
-
-export function vec2Dist(a: Vec2, b: Vec2): number {
-  const dx = a.x - b.x;
-  const dy = a.y - b.y;
-  return Math.sqrt(dx * dx + dy * dy);
-}
-
 export function vec2Len(v: Vec2): number {
   return Math.sqrt(v.x * v.x + v.y * v.y);
 }
@@ -54,31 +44,15 @@ export const BALLOON_START_Y = 200;
 export const SHIELD_RADIUS = 28;
 export const SHIELD_FOLLOW_SPEED = 18;
 export const SHIELD_PUSH_FORCE = 800;
-export const SHIELD_TETHER_LENGTH = 180;
 
 // ─── Obstacle Shapes ───
 export type ObstacleShape = "circle" | "rect" | "triangle" | "diamond" | "hexagon" | "plus" | "pill" | "tower" | "pyramid";
 
-export interface ObstacleDef {
-  shape: ObstacleShape;
-  width: number;
-  height: number;
-  radius: number;
-  mass: number;
-  color: string;
-}
-
-// ─── Physics ───
-export const GRAVITY = 120;
-export const OBSTACLE_FRICTION = 0.98;
-export const OBSTACLE_RESTITUTION = 0.4;
-
 // ─── Spawning ───
 export const SPAWN_AHEAD_DISTANCE = 500;
 export const DESPAWN_BEHIND_DISTANCE = 400;
-export const MAX_OBSTACLES = 50;
 
-// ─── Difficulty Tiers (score-based) ───
+// ─── Difficulty Tiers (score-based, every 200 pts) ───
 export interface DifficultyTier {
   name: string;
   minScore: number;
@@ -88,6 +62,7 @@ export interface DifficultyTier {
   scaleFactor: number;
   massMultiplier: number;
   speedMultiplier: number;
+  maxObstacles: number;
 }
 
 export const DIFFICULTY_TIERS: DifficultyTier[] = [
@@ -100,46 +75,51 @@ export const DIFFICULTY_TIERS: DifficultyTier[] = [
     scaleFactor: 1.0,
     massMultiplier: 1.0,
     speedMultiplier: 1.0,
+    maxObstacles: 30,
   },
   {
     name: "medium",
-    minScore: 10,
+    minScore: 200,
     spawnDistance: 240,
     patternStart: 0,
     patternEnd: 19,
     scaleFactor: 1.05,
     massMultiplier: 1.1,
     speedMultiplier: 1.1,
+    maxObstacles: 45,
   },
   {
     name: "hard",
-    minScore: 20,
+    minScore: 400,
     spawnDistance: 200,
     patternStart: 5,
     patternEnd: 37,
     scaleFactor: 1.15,
     massMultiplier: 1.25,
     speedMultiplier: 1.25,
+    maxObstacles: 65,
   },
   {
     name: "expert",
-    minScore: 30,
+    minScore: 600,
     spawnDistance: 170,
     patternStart: 10,
     patternEnd: 50,
     scaleFactor: 1.25,
     massMultiplier: 1.4,
     speedMultiplier: 1.4,
+    maxObstacles: 100,
   },
   {
     name: "insane",
-    minScore: 40,
+    minScore: 800,
     spawnDistance: 140,
     patternStart: 15,
     patternEnd: 50,
     scaleFactor: 1.35,
     massMultiplier: 1.6,
     speedMultiplier: 1.6,
+    maxObstacles: 150,
   },
 ];
 
@@ -551,9 +531,6 @@ export const WAVE_PATTERNS: WavePattern[] = [
     ],
   },
 ];
-
-// ─── Floor ───
-export const FLOOR_SCROLL_DIVISOR = 1000;
 
 // ─── Score Config ───
 export const SCORE_ANCHORS = [
