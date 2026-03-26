@@ -400,8 +400,10 @@ export class Renderer {
       const wx = gameToWorldX(obs.pos.x, this._width);
       const wz = gameToWorldZ(obs.pos.y);
 
-      entry.mesh.position.set(wx, GROUND_Y + 1, wz);
-      entry.mesh.rotation.y = obs.angle;
+      const baseY = GROUND_Y + 1 + obs.heightY;
+      const minY = GROUND_Y + 0.5;
+      entry.mesh.position.set(wx, Math.max(baseY, minY), wz);
+      entry.mesh.rotation.set(obs.tiltX, obs.angle, obs.tiltZ);
     }
 
     for (let i = this.obstacleMeshes.length - 1; i >= 0; i--) {

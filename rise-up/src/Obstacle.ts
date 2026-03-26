@@ -24,6 +24,13 @@ export interface Obstacle {
   radius: number;
   angle: number;
   angularVel: number;
+  heightY: number;
+  velY: number;
+  tiltX: number;
+  tiltZ: number;
+  spinX: number;
+  spinZ: number;
+  grounded: boolean;
   mass: number;
   color: string;
   shadowOffset: number;
@@ -57,6 +64,13 @@ export function createObstacle(
     radius,
     angle: 0,
     angularVel,
+    heightY: 0,
+    velY: 0,
+    tiltX: 0,
+    tiltZ: 0,
+    spinX: 0,
+    spinZ: 0,
+    grounded: true,
     mass,
     color: OBSTACLE_COLORS[colorIdx],
     shadowOffset: 3 + Math.random() * 2,
@@ -83,6 +97,13 @@ export function createDebrisBrick(
     radius: 0,
     angle: Math.random() * Math.PI * 2,
     angularVel: (Math.random() - 0.5) * 4,
+    heightY: 8 + Math.random() * 20,
+    velY: 60 + Math.random() * 100,
+    tiltX: (Math.random() - 0.5) * 1.0,
+    tiltZ: (Math.random() - 0.5) * 1.0,
+    spinX: (Math.random() - 0.5) * 6,
+    spinZ: (Math.random() - 0.5) * 6,
+    grounded: false,
     mass: 1.2,
     color,
     shadowOffset: 2,
@@ -92,24 +113,59 @@ export function createDebrisBrick(
   };
 }
 
-const DEBRIS_FRICTION = 0.97;
 const DYNAMIC_FRICTION = 0.97;
-const DEBRIS_GRAVITY = 80;
+const VERTICAL_GRAVITY = 280;
+const BOUNCE_RESTITUTION = 0.35;
+const GROUND_LEVEL = 0;
 
 export function updateObstacle(obs: Obstacle, dt: number): void {
   if (obs.isStatic) return;
 
-  const friction = obs.isDebris ? DEBRIS_FRICTION : DYNAMIC_FRICTION;
-  const fPow = Math.pow(friction, dt * 60);
+  const fPow = Math.pow(DYNAMIC_FRICTION, dt * 60);
 
   obs.vel.x *= fPow;
   obs.vel.y *= fPow;
-  obs.vel.y += DEBRIS_GRAVITY * dt;
-  obs.angularVel *= Math.pow(0.98, dt * 60);
 
   obs.pos.x += obs.vel.x * dt;
   obs.pos.y += obs.vel.y * dt;
   obs.angle += obs.angularVel * dt;
+  obs.angularVel *= Math.pow(0.98, dt * 60);
+
+  if (!obs.grounded) {
+    obs.velY -= VERTICAL_GRAVITY * dt;
+    obs.heightY += obs.velY * dt;
+
+    obs.tiltX += obs.spinX * dt;
+    obs.tiltZ += obs.spinZ * dt;
+
+    if (obs.heightY <= GROUND_LEVEL) {
+      obs.heightY = GROUND_LEVEL;
+      obs.velY = -obs.velY * BOUNCE_RESTITUTION;
+
+      obs.spinX *= 0.5;
+      obs.spinZ *= 0.5;
+      obs.angularVel *= 0.5;
+      obs.vel.x *= 0.7;
+      obs.vel.y *= 0.7;
+
+      if (Math.abs(obs.velY) < 5) {
+        obs.velY = 0;
+        obs.heightY = GROUND_LEVEL;
+        obs.grounded = true;
+        obs.spinX = 0;
+        obs.spinZ = 0;
+        obs.tiltX = 0;
+        obs.tiltZ = 0;
+      }
+    }
+  }
+
+  if (obs.grounded) {
+    obs.tiltX *= Math.pow(0.05, dt * 60);
+    obs.tiltZ *= Math.pow(0.05, dt * 60);
+    if (Math.abs(obs.tiltX) < 0.01) obs.tiltX = 0;
+    if (Math.abs(obs.tiltZ) < 0.01) obs.tiltZ = 0;
+  }
 }
 
 function getObstacleBounds(x: number, y: number, w: number, h: number, r: number, shape: ObstacleShape): { cx: number; cy: number; halfW: number; halfH: number } {
