@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, minimal-ui"
+    />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <title>Suika</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap");
+
+      :root {
+        --sky-bright: #bfe9ff;
+        --sky-soft: #e3f5ff;
+        --field: #c8f2b8;
+        --field-deep: #9fd98f;
+        --cream: #fffdf7;
+        --ink: #3a4f6c;
+        --ink-soft: #5a7194;
+        --sun: #ffe566;
+        --orange: #ff9f43;
+        --orange-deep: #f5861f;
+        --coral: #ff7b7b;
+        --coral-soft: #ffb3a7;
+        --accent: #ff9f43;
+        --accent-dim: #f5861f;
+        --text: #2f3d52;
+        --muted: rgba(47, 61, 82, 0.72);
+        --panel: rgba(255, 253, 247, 0.94);
+        --stroke: rgba(58, 79, 108, 0.35);
+        --panel-border: #3d5a80;
+        --settings-top: 45px;
+      }
+
+      @media (pointer: coarse) {
+        :root {
+          --settings-top: 120px;
+        }
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+        background: linear-gradient(180deg, var(--sky-bright) 0%, var(--sky-soft) 42%, #dff6e8 78%, var(--field) 100%);
+        font-family: "Fredoka", system-ui, sans-serif;
+        color: var(--text);
+      }
+
+      #gameCanvas {
+        display: block;
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 1;
+      }
+
+      .hidden {
+        display: none !important;
+      }
+
+      /* Start — toon / sports-day */
+      #startScreen {
+        position: fixed;
+        inset: 0;
+        z-index: 20;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: linear-gradient(
+            180deg,
+            rgba(191, 233, 255, 0.97) 0%,
+            rgba(227, 245, 255, 0.96) 45%,
+            rgba(200, 242, 184, 0.94) 100%
+          ),
+          radial-gradient(ellipse 90% 55% at 85% 8%, rgba(255, 229, 102, 0.45), transparent 55%);
+        backdrop-filter: blur(8px);
+        pointer-events: auto;
+      }
+
+      #startScreen h1 {
+        font-size: clamp(2.2rem, 8vw, 3.2rem);
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        margin-bottom: 6px;
+        color: var(--ink);
+        text-shadow: 3px 3px 0 var(--sun), -1px -1px 0 rgba(255, 255, 255, 0.9), 0 0 0 3px var(--cream),
+          0 6px 0 rgba(58, 79, 108, 0.12);
+      }
+
+      #startScreen p {
+        color: var(--muted);
+        font-size: 0.95rem;
+        max-width: 320px;
+        text-align: center;
+        line-height: 1.45;
+        margin-bottom: 16px;
+      }
+
+      .start-hint {
+        font-size: 0.8rem !important;
+        margin-bottom: 22px !important;
+      }
+
+      .start-hint a {
+        color: var(--orange-deep);
+        font-weight: 600;
+        text-decoration: none;
+        border-bottom: 2px dashed rgba(245, 134, 31, 0.55);
+      }
+
+      .btn-primary {
+        appearance: none;
+        border: 3px solid var(--panel-border);
+        border-radius: 999px;
+        padding: 14px 36px;
+        font-family: inherit;
+        font-size: 1.08rem;
+        font-weight: 700;
+        color: var(--cream);
+        background: linear-gradient(180deg, var(--orange) 0%, var(--orange-deep) 100%);
+        box-shadow: 0 5px 0 #2d4a6e, 0 8px 20px rgba(245, 134, 31, 0.35);
+        cursor: pointer;
+      }
+
+      .btn-primary:active {
+        transform: translateY(2px);
+        box-shadow: 0 3px 0 #2d4a6e, 0 4px 12px rgba(245, 134, 31, 0.3);
+      }
+
+      /* HUD — hidden until play; pointer-events none on shell */
+      #hud {
+        position: fixed;
+        inset: 0;
+        z-index: 10;
+        pointer-events: none;
+      }
+
+      #hudTop {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 0;
+        padding: 16px 20px;
+        padding-top: max(16px, var(--settings-top));
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .hud-card {
+        pointer-events: none;
+        background: var(--panel);
+        border: 3px solid var(--panel-border);
+        border-radius: 18px;
+        padding: 10px 16px;
+        box-shadow: 0 4px 0 rgba(45, 74, 110, 0.2), 4px 4px 0 rgba(255, 255, 255, 0.85) inset;
+      }
+
+      .hud-label {
+        font-size: 0.68rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--ink-soft);
+        margin-bottom: 4px;
+      }
+
+      .hud-value {
+        font-size: 1.55rem;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        color: var(--ink);
+      }
+
+      #nextBubble {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        min-width: 88px;
+      }
+
+      #nextOrb {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        margin-top: 6px;
+        background: radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.85), transparent 42%), var(--cream);
+        border: 3px solid var(--panel-border);
+        box-shadow: 0 3px 0 rgba(45, 74, 110, 0.15), inset 0 -2px 8px rgba(200, 230, 255, 0.5);
+      }
+
+      /* Settings button — interactive */
+      #settingsBtn {
+        position: fixed;
+        top: var(--settings-top);
+        right: 16px;
+        z-index: 30;
+        width: 48px;
+        height: 48px;
+        border-radius: 14px;
+        border: 3px solid var(--panel-border);
+        background: var(--cream);
+        color: var(--ink);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: auto;
+        box-shadow: 0 4px 0 rgba(45, 74, 110, 0.18);
+      }
+
+      #settingsBtn svg {
+        width: 24px;
+        height: 24px;
+      }
+
+      #settingsBtn:active {
+        transform: scale(0.96);
+      }
+
+      /* Settings modal */
+      #settingsModal {
+        position: fixed;
+        inset: 0;
+        z-index: 40;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: rgba(58, 79, 108, 0.35);
+        backdrop-filter: blur(6px);
+        pointer-events: auto;
+      }
+
+      .settings-panel {
+        width: min(360px, 100%);
+        background: var(--cream);
+        border: 4px solid var(--panel-border);
+        border-radius: 22px;
+        padding: 22px;
+        box-shadow: 0 8px 0 rgba(45, 74, 110, 0.2), 0 20px 50px rgba(58, 79, 108, 0.2);
+      }
+
+      .settings-panel h2 {
+        font-size: 1.25rem;
+        font-weight: 700;
+        margin-bottom: 18px;
+      }
+
+      .settings-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 0;
+        border-bottom: 2px dashed rgba(58, 79, 108, 0.15);
+      }
+
+      .settings-row:last-of-type {
+        border-bottom: none;
+      }
+
+      .settings-row span {
+        font-weight: 600;
+        font-size: 0.95rem;
+      }
+
+      .toggle {
+        width: 52px;
+        height: 30px;
+        border-radius: 999px;
+        border: 2px solid var(--panel-border);
+        background: rgba(200, 220, 235, 0.6);
+        position: relative;
+        cursor: pointer;
+        flex-shrink: 0;
+        transition: background 0.2s ease;
+      }
+
+      .toggle.on {
+        background: linear-gradient(90deg, var(--field-deep), #7dd87a);
+      }
+
+      .toggle::after {
+        content: "";
+        position: absolute;
+        top: 3px;
+        left: 3px;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+        transition: transform 0.2s ease;
+      }
+
+      .toggle.on::after {
+        transform: translateX(22px);
+      }
+
+      .settings-footer {
+        margin-top: 16px;
+        display: flex;
+        justify-content: flex-end;
+      }
+
+      .btn-ghost {
+        appearance: none;
+        border: 3px solid var(--panel-border);
+        background: var(--sky-soft);
+        color: var(--ink);
+        font-family: inherit;
+        font-weight: 600;
+        padding: 10px 20px;
+        border-radius: 14px;
+        cursor: pointer;
+        box-shadow: 0 3px 0 rgba(45, 74, 110, 0.12);
+      }
+
+      #noAssetWarning {
+        color: #d94a4a;
+        font-size: 0.85rem;
+        font-weight: 600;
+        max-width: 280px;
+        margin-top: -8px;
+        margin-bottom: 12px;
+      }
+
+      #gameOver {
+        position: fixed;
+        inset: 0;
+        z-index: 25;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: rgba(255, 253, 247, 0.92);
+        backdrop-filter: blur(10px);
+        pointer-events: auto;
+      }
+
+      #gameOver .go-inner {
+        text-align: center;
+        max-width: 320px;
+        padding: 28px 24px;
+        background: var(--cream);
+        border: 4px solid var(--panel-border);
+        border-radius: 24px;
+        box-shadow: 0 8px 0 rgba(45, 74, 110, 0.12);
+      }
+
+      #gameOver h2 {
+        font-size: 1.85rem;
+        font-weight: 700;
+        margin-bottom: 12px;
+        color: var(--ink);
+      }
+
+      #gameOver .go-score {
+        font-size: 1.3rem;
+        color: var(--orange-deep);
+        margin-bottom: 24px;
+        font-weight: 700;
+      }
+
+      #btnDrop {
+        position: fixed;
+        bottom: max(28px, env(safe-area-inset-bottom, 28px));
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 12;
+        min-width: 140px;
+        min-height: 52px;
+        padding: 14px 28px;
+        border: 3px solid var(--panel-border);
+        border-radius: 999px;
+        font-family: inherit;
+        font-size: 1rem;
+        font-weight: 700;
+        color: var(--cream);
+        background: linear-gradient(180deg, var(--orange), var(--orange-deep));
+        box-shadow: 0 5px 0 #2d4a6e, 0 8px 20px rgba(245, 134, 31, 0.3);
+        cursor: pointer;
+        pointer-events: auto;
+      }
+
+      @media (pointer: fine) {
+        #btnDrop {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="gameCanvas" aria-label="Game"></canvas>
+
+    <div id="startScreen">
+      <h1>Suika</h1>
+      <p>Cute sports balls, big merges, and a squishy stack—do not let the pile cross the line.</p>
+      <p class="start-hint">
+        <a href="?bounds=1">Tune collision bounds</a> for each ball asset
+      </p>
+      <p id="noAssetWarning" class="hidden">
+        Add ball images (.png / .webp) to the suika/assets folder, then run the build again.
+      </p>
+      <button type="button" class="btn-primary" id="btnStart">Play</button>
+    </div>
+
+    <div id="gameOver" class="hidden">
+      <div class="go-inner">
+        <h2>Game over</h2>
+        <p class="go-score">Score <span id="finalScore">0</span></p>
+        <button type="button" class="btn-primary" id="btnRestart">Play again</button>
+      </div>
+    </div>
+
+    <div id="hud" class="hidden">
+      <div id="hudTop">
+        <div class="hud-card">
+          <div class="hud-label">Score</div>
+          <div class="hud-value" id="scoreValue">0</div>
+        </div>
+        <div class="hud-card" id="nextBubble">
+          <div class="hud-label">Next</div>
+          <div id="nextOrb" aria-hidden="true"></div>
+        </div>
+      </div>
+    </div>
+
+    <button type="button" id="btnDrop" class="hidden" aria-label="Drop ball">Drop</button>
+
+    <button type="button" id="settingsBtn" class="hidden" aria-label="Settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <circle cx="12" cy="12" r="3" />
+        <path
+          d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"
+        />
+      </svg>
+    </button>
+
+    <div id="settingsModal" class="hidden">
+      <div class="settings-panel" role="dialog" aria-labelledby="settingsTitle">
+        <h2 id="settingsTitle">Settings</h2>
+        <div class="settings-row">
+          <span>Music</span>
+          <button type="button" class="toggle on" id="toggleMusic" aria-pressed="true"></button>
+        </div>
+        <div class="settings-row">
+          <span>Sound effects</span>
+          <button type="button" class="toggle on" id="toggleFx" aria-pressed="true"></button>
+        </div>
+        <div class="settings-row">
+          <span>Haptics</span>
+          <button type="button" class="toggle on" id="toggleHaptics" aria-pressed="true"></button>
+        </div>
+        <div class="settings-footer">
+          <button type="button" class="btn-ghost" id="btnCloseSettings">Done</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
