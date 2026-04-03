@@ -398,7 +398,7 @@ export function runBoundsEditor(): void {
       ctx.fillStyle = "rgba(58, 79, 108, 0.55)";
       ctx.font = "600 14px Fredoka, system-ui, sans-serif";
       ctx.textAlign = "center";
-      ctx.fillText("Add images to suika/assets", bw / 2, bh / 2);
+      ctx.fillText("Add images to suika/assets/balls", bw / 2, bh / 2);
       return;
     }
 
@@ -678,7 +678,7 @@ export function runBoundsEditor(): void {
   if (assets.length === 0) {
     const empty = el("div", "be-empty");
     empty.textContent =
-      "No images found. Add .png / .jpg / .webp files under suika/assets/ and reload.";
+      "No images found. Add .png / .jpg / .webp files under suika/assets/balls/ and reload.";
     mid.appendChild(empty);
     wrap.style.display = "none";
   } else {

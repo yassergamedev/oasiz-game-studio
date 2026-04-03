@@ -1,9 +1,10 @@
 /**
- * Sports ball images in ../assets (png, jpg, webp).
- * Filenames (without extension) are used as stable ids for bounds config.
+ * Sports ball images in ../assets/balls (png, jpg, webp).
+ * Root assets (e.g. bg.png, net.png) are excluded — only this folder is scanned.
+ * Filenames (without extension) are stable ids for bounds config.
  */
 
-const modules = import.meta.glob("../assets/**/*.{png,jpg,jpeg,webp}", {
+const modules = import.meta.glob("../assets/balls/**/*.{png,jpg,jpeg,webp}", {
   eager: true,
   import: "default",
 }) as Record<string, string>;

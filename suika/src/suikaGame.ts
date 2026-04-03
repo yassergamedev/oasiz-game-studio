@@ -9,7 +9,10 @@ import {
   polygonToPixelOffsetsFromCenter,
   type BallColliderConfig,
 } from "./ballBounds";
-import { BALL_TIER_ORDER } from "./ballTiers";
+import { resolveTierIds } from "./ballTiers";
+import type { MergeFanfarePayload } from "./mergeFanfare";
+import { submitFinalScoreToPlatform } from "./platformBridge";
+import { tierRadiusFromCupMin } from "./tierSizing";
 
 export interface GameLayout {
   w: number;
@@ -39,21 +42,19 @@ interface BallRuntime {
 const WALL_LABEL = "wall";
 const BALL_LABEL = "ball";
 
-function tierRadius(layout: GameLayout, tier: number, numTiers: number): number {
-  const m = Math.min(layout.cupW, layout.cupH);
-  const r0 = m * 0.042;
-  const g = 1.26;
-  const r = r0 * Math.pow(g, tier);
-  const cap = m * 0.38;
-  return Math.min(r, cap);
-}
+/** One full slow zoom-in / zoom-out cycle on the merge hint ball after pointer is down (ms). */
+const MERGE_HINT_ZOOM_PERIOD_MS = 3200;
+const MERGE_HINT_ZOOM_PEAK = 0.2;
 
-function resolveTierIds(assets: BallAsset[]): string[] {
-  if (BALL_TIER_ORDER.length > 0) {
-    const set = new Set(assets.map((a) => a.id));
-    return BALL_TIER_ORDER.filter((id) => set.has(id));
-  }
-  return assets.map((a) => a.id);
+/**
+ * Inner edge of the drawn cup (main.ts strokes roundRect with lineWidth 6, centered on path).
+ * Wall inner faces are placed here so balls meet the visible border, not ~25px inside.
+ */
+const CUP_INNER_INSET = 5;
+const WALL_THICKNESS = 28;
+
+function tierRadius(layout: GameLayout, tier: number, _numTiers: number): number {
+  return tierRadiusFromCupMin(Math.min(layout.cupW, layout.cupH), tier);
 }
 
 export class SuikaGame {
@@ -72,13 +73,21 @@ export class SuikaGame {
   private nextTier: number;
   private score = 0;
   private gameOver = false;
+  /** Body that crossed the danger line (for game-over focus VFX). */
+  private losingBallBodyId: number | null = null;
   private dropperX = 0;
   private pointerActive = false;
+  /** When the drop preview first appears (pointer down / nudge), for scale-in draw. */
+  private previewAnimStartAt = 0;
   private layout: GameLayout;
   private onScoreChange: (n: number) => void;
   private onNextChange: (assetId: string, url: string) => void;
   private onGameOver: (score: number) => void;
   private getSettings: () => { haptics: boolean };
+  private onMerge?: (payload: MergeFanfarePayload) => void;
+  private onDrop?: () => void;
+  private onWallBounce?: (speed: number) => void;
+  private lastWallBounceSfxAt = 0;
   private collisionHandler: (e: Matter.IEventCollision<Matter.Engine>) => void;
   private afterUpdateHandler: () => void;
 
@@ -89,6 +98,9 @@ export class SuikaGame {
       onNextChange: (assetId: string, url: string) => void;
       onGameOver: (score: number) => void;
       getSettings: () => { haptics: boolean };
+      onMerge?: (payload: MergeFanfarePayload) => void;
+      onDrop?: () => void;
+      onWallBounce?: (speed: number) => void;
     },
   ) {
     this.layout = layout;
@@ -96,6 +108,9 @@ export class SuikaGame {
     this.onNextChange = callbacks.onNextChange;
     this.onGameOver = callbacks.onGameOver;
     this.getSettings = callbacks.getSettings;
+    this.onMerge = callbacks.onMerge;
+    this.onDrop = callbacks.onDrop;
+    this.onWallBounce = callbacks.onWallBounce;
 
     this.engine = Matter.Engine.create({
       gravity: { x: 0, y: 1.15 },
@@ -147,6 +162,7 @@ export class SuikaGame {
   resetRound(layout: GameLayout): void {
     this.layout = layout;
     this.gameOver = false;
+    this.losingBallBodyId = null;
     this.score = 0;
     this.pendingDrop = true;
     this.mergeQueue = [];
@@ -156,39 +172,88 @@ export class SuikaGame {
     this.walls = [];
     this.buildWalls();
     this.dropperX = layout.cupX + layout.cupW / 2;
+    this.pointerActive = false;
+    this.previewAnimStartAt = 0;
     this.rollNextTiers();
     this.onScoreChange(0);
   }
 
   private buildWalls(): void {
     const { cupX, cupY, cupW, cupH } = this.layout;
-    const t = 28;
+    const t = WALL_THICKNESS;
+    const inset = CUP_INNER_INSET;
     const wallOpts: Matter.IBodyDefinition = {
       isStatic: true,
       label: WALL_LABEL,
-      friction: 0.12,
+      friction: 0.1,
+      restitution: 0.24,
       render: { visible: false },
     };
-    const left = Matter.Bodies.rectangle(cupX + t / 2, cupY + cupH / 2, t, cupH + t * 2, wallOpts);
-    const right = Matter.Bodies.rectangle(cupX + cupW - t / 2, cupY + cupH / 2, t, cupH + t * 2, wallOpts);
-    const bottom = Matter.Bodies.rectangle(cupX + cupW / 2, cupY + cupH - t / 2, cupW, t, wallOpts);
+    const leftCx = cupX + inset - t / 2;
+    const rightCx = cupX + cupW - inset + t / 2;
+    /* Top of floor slab = cup inner bottom; body center is half thickness below that surface. */
+    const bottomCy = cupY + cupH - inset + t / 2;
+    const left = Matter.Bodies.rectangle(leftCx, cupY + cupH / 2, t, cupH + t * 2, wallOpts);
+    const right = Matter.Bodies.rectangle(rightCx, cupY + cupH / 2, t, cupH + t * 2, wallOpts);
+    const bottom = Matter.Bodies.rectangle(cupX + cupW / 2, bottomCy, cupW, t, wallOpts);
     this.walls = [left, right, bottom];
     Matter.World.add(this.engine.world, this.walls);
   }
 
   setLayout(layout: GameLayout): void {
+    const prev = this.layout;
     this.layout = layout;
     if (this.walls.length === 0) return;
     this.repositionWalls();
+    this.remapBallsAndDropperToLayout(prev, layout);
+  }
+
+  /**
+   * Keep balls and aim under the cup when the viewport resizes (walls move; bodies must follow).
+   * Maps each ball's center from the previous inner cup box to the new one in normalized coords.
+   */
+  private remapBallsAndDropperToLayout(prev: GameLayout, next: GameLayout): void {
+    const inset = CUP_INNER_INSET;
+    const prevIW = Math.max(12, prev.cupW - 2 * inset);
+    const prevIH = Math.max(12, prev.cupH - inset);
+    const nextIW = Math.max(12, next.cupW - 2 * inset);
+    const nextIH = Math.max(12, next.cupH - inset);
+    const prevL = prev.cupX + inset;
+    const prevT = prev.cupY;
+    const nextL = next.cupX + inset;
+    const nextT = next.cupY;
+
+    for (const body of Matter.Composite.allBodies(this.engine.world)) {
+      if (body.label !== BALL_LABEL) continue;
+      const px = body.position.x;
+      const py = body.position.y;
+      const tx = (px - prevL) / prevIW;
+      const ty = (py - prevT) / prevIH;
+      const nx = nextL + tx * nextIW;
+      const ny = nextT + ty * nextIH;
+      Matter.Body.setPosition(body, { x: nx, y: ny });
+      const data = this.ballData.get(body.id);
+      if (data) {
+        data.displayRadius = tierRadius(next, data.tier, this.tierIds.length);
+      }
+    }
+
+    const dtx = (this.dropperX - prevL) / prevIW;
+    this.dropperX = nextL + dtx * nextIW;
+    const r = tierRadius(next, this.currentTier, this.tierIds.length);
+    const minX = next.cupX + inset + r;
+    const maxX = next.cupX + next.cupW - inset - r;
+    this.dropperX = Math.max(minX, Math.min(maxX, this.dropperX));
   }
 
   private repositionWalls(): void {
     const { cupX, cupY, cupW, cupH } = this.layout;
-    const t = 28;
+    const t = WALL_THICKNESS;
+    const inset = CUP_INNER_INSET;
     if (this.walls.length >= 3) {
-      Matter.Body.setPosition(this.walls[0], { x: cupX + t / 2, y: cupY + cupH / 2 });
-      Matter.Body.setPosition(this.walls[1], { x: cupX + cupW - t / 2, y: cupY + cupH / 2 });
-      Matter.Body.setPosition(this.walls[2], { x: cupX + cupW / 2, y: cupY + cupH - t / 2 });
+      Matter.Body.setPosition(this.walls[0], { x: cupX + inset - t / 2, y: cupY + cupH / 2 });
+      Matter.Body.setPosition(this.walls[1], { x: cupX + cupW - inset + t / 2, y: cupY + cupH / 2 });
+      Matter.Body.setPosition(this.walls[2], { x: cupX + cupW / 2, y: cupY + cupH - inset + t / 2 });
     }
   }
 
@@ -207,24 +272,59 @@ export class SuikaGame {
     return this.gameOver;
   }
 
+  /**
+   * Canvas-space center of the ball that caused game over (sprite anchor), for zoom / UI.
+   */
+  getGameOverFocus(): { cx: number; cy: number; r: number } | null {
+    if (!this.gameOver || this.losingBallBodyId === null) return null;
+    for (const body of Matter.Composite.allBodies(this.engine.world)) {
+      if (body.id !== this.losingBallBodyId || body.label !== BALL_LABEL) continue;
+      const data = this.ballData.get(body.id);
+      if (!data) return null;
+      return {
+        cx: body.position.x + data.spriteOffsetX,
+        cy: body.position.y + data.spriteOffsetY,
+        r: data.displayRadius,
+      };
+    }
+    return null;
+  }
+
+  /** Merge order for HUD: tier 0 (smallest) → last (largest). */
+  getEvolutionChain(): { id: string; url: string }[] {
+    const urlById = new Map(this.assets.map((a) => [a.id, a.url] as const));
+    const out: { id: string; url: string }[] = [];
+    for (const id of this.tierIds) {
+      const url = urlById.get(id);
+      if (url) out.push({ id, url });
+    }
+    return out;
+  }
+
   canDrop(): boolean {
     return this.pendingDrop && !this.gameOver;
   }
 
   handlePointer(clientX: number, _clientY: number, canvas: HTMLCanvasElement): void {
+    const wasActive = this.pointerActive;
     const rect = canvas.getBoundingClientRect();
     const x = clientX - rect.left;
     const scale = canvas.width / rect.width;
     const px = x * scale;
     const r = tierRadius(this.layout, this.currentTier, this.tierIds.length);
-    const minX = this.layout.cupX + r + 8;
-    const maxX = this.layout.cupX + this.layout.cupW - r - 8;
+    const inset = CUP_INNER_INSET;
+    const minX = this.layout.cupX + inset + r;
+    const maxX = this.layout.cupX + this.layout.cupW - inset - r;
     this.dropperX = Math.max(minX, Math.min(maxX, px));
     this.pointerActive = true;
+    if (!wasActive) {
+      this.previewAnimStartAt = performance.now();
+    }
   }
 
   pointerLeave(): void {
     this.pointerActive = false;
+    this.previewAnimStartAt = 0;
   }
 
   tryDrop(): void {
@@ -237,6 +337,7 @@ export class SuikaGame {
     Matter.World.add(this.engine.world, body);
     this.pendingDrop = false;
     this.currentTier = this.nextTier;
+    this.onDrop?.();
     this.rollNextTiers();
   }
 
@@ -259,9 +360,9 @@ export class SuikaGame {
 
     const common: Matter.IBodyDefinition = {
       label: BALL_LABEL,
-      friction: 0.18,
-      frictionAir: 0.012,
-      restitution: 0.08,
+      friction: 0.14,
+      frictionAir: 0.011,
+      restitution: 0.32,
       density: 0.0018,
       sleepThreshold: 36,
     };
@@ -304,9 +405,19 @@ export class SuikaGame {
   }
 
   private handleCollisionStart(e: Matter.IEventCollision<Matter.Engine>): void {
+    const now = performance.now();
     for (const pair of e.pairs) {
       const a = pair.bodyA;
       const b = pair.bodyB;
+      const ball = a.label === BALL_LABEL ? a : b.label === BALL_LABEL ? b : null;
+      const wall = a.label === WALL_LABEL ? a : b.label === WALL_LABEL ? b : null;
+      if (ball && wall && now - this.lastWallBounceSfxAt > 90) {
+        const sp = Math.hypot(ball.velocity.x, ball.velocity.y);
+        if (sp > 0.42) {
+          this.lastWallBounceSfxAt = now;
+          this.onWallBounce?.(sp);
+        }
+      }
       if (a.label !== BALL_LABEL || b.label !== BALL_LABEL) continue;
       const da = this.ballData.get(a.id);
       const db = this.ballData.get(b.id);
@@ -345,7 +456,15 @@ export class SuikaGame {
         Matter.World.add(this.engine.world, nb);
       }
 
-      this.score += (da.tier + 1) * 10;
+      const scoreAdd = (da.tier + 1) * 10;
+      this.onMerge?.({
+        x: mx,
+        y: my,
+        newTier,
+        prevTier: da.tier,
+        scoreAdd,
+      });
+      this.score += scoreAdd;
       this.onScoreChange(this.score);
     }
     this.mergeKeys.clear();
@@ -388,6 +507,7 @@ export class SuikaGame {
       const settled = body.isSleeping || (s < 0.05 && w < 0.01);
       if (!settled) continue;
       if (body.bounds.min.y < this.layout.dangerY) {
+        this.losingBallBodyId = body.id;
         this.triggerGameOver();
         return;
       }
@@ -395,37 +515,129 @@ export class SuikaGame {
   }
 
   nudgeDropper(canvas: HTMLCanvasElement, dxScreenPx: number): void {
+    const wasActive = this.pointerActive;
     const rect = canvas.getBoundingClientRect();
     const scale = canvas.width / rect.width;
     this.dropperX += dxScreenPx * scale;
     const r = tierRadius(this.layout, this.currentTier, this.tierIds.length);
-    const minX = this.layout.cupX + r + 8;
-    const maxX = this.layout.cupX + this.layout.cupW - r - 8;
+    const inset = CUP_INNER_INSET;
+    const minX = this.layout.cupX + inset + r;
+    const maxX = this.layout.cupX + this.layout.cupW - inset - r;
     this.dropperX = Math.max(minX, Math.min(maxX, this.dropperX));
     this.pointerActive = true;
+    if (!wasActive) {
+      this.previewAnimStartAt = performance.now();
+    }
+  }
+
+  /** Same-tier ball in the cup closest to the aim column (pre-drop merge hint). */
+  private findSimilarBallIdForDropHint(
+    bodies: Matter.Body[],
+    tier: number,
+    columnX: number,
+  ): number | null {
+    const r = tierRadius(this.layout, tier, this.tierIds.length);
+    const px = columnX;
+    const py = this.layout.cupY + r + 14;
+    let best: Matter.Body | null = null;
+    let bestD = Infinity;
+    for (const body of bodies) {
+      if (body.label !== BALL_LABEL) continue;
+      const data = this.ballData.get(body.id);
+      if (!data || data.tier !== tier) continue;
+      const sx = body.position.x + data.spriteOffsetX;
+      const sy = body.position.y + data.spriteOffsetY;
+      if (sx < this.layout.cupX - 8 || sx > this.layout.cupX + this.layout.cupW + 8) continue;
+      if (sy < this.layout.cupY - 4 || sy > this.layout.cupY + this.layout.cupH + 20) continue;
+      const dx = sx - px;
+      const dy = sy - py;
+      const d = dx * dx + dy * dy;
+      if (d < bestD) {
+        bestD = d;
+        best = body;
+      }
+    }
+    return best ? best.id : null;
+  }
+
+  private preDropMergeHintScale(
+    bodyId: number,
+    hintTargetId: number | null,
+    nowMs: number,
+    reducedMotion: boolean,
+  ): number {
+    if (reducedMotion || hintTargetId === null || bodyId !== hintTargetId) return 1;
+    const t = (nowMs * 2 * Math.PI) / MERGE_HINT_ZOOM_PERIOD_MS;
+    return 1 + MERGE_HINT_ZOOM_PEAK * 0.5 * (1 + Math.sin(t));
+  }
+
+  private drawLosingBallHighlight(
+    ctx: CanvasRenderingContext2D,
+    body: Matter.Body,
+    data: BallRuntime,
+    nowMs: number,
+    ramp: number,
+  ): void {
+    const sx = body.position.x + data.spriteOffsetX;
+    const sy = body.position.y + data.spriteOffsetY;
+    const pulse = Math.sin(nowMs * 0.0075) * 0.5 + 0.5;
+    const ringBoost = 6 + pulse * 10;
+    const rGlow = data.displayRadius + ringBoost + 18;
+    const a = Math.max(0, Math.min(1, ramp));
+    ctx.save();
+    ctx.translate(sx, sy);
+    ctx.globalCompositeOperation = "lighter";
+    const g = ctx.createRadialGradient(0, 0, data.displayRadius * 0.15, 0, 0, rGlow);
+    g.addColorStop(0, "rgba(255, 255, 220, " + ((0.22 + pulse * 0.28) * a).toFixed(3) + ")");
+    g.addColorStop(0.45, "rgba(255, 140, 60, " + ((0.18 + pulse * 0.22) * a).toFixed(3) + ")");
+    g.addColorStop(1, "rgba(255, 40, 20, 0)");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(0, 0, rGlow, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalCompositeOperation = "source-over";
+    ctx.strokeStyle = "rgba(255, 255, 255, " + ((0.55 + pulse * 0.4) * a).toFixed(3) + ")";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(0, 0, data.displayRadius + 5 + pulse * 5, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(255, 70, 40, " + ((0.75 + pulse * 0.22) * a).toFixed(3) + ")";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(0, 0, data.displayRadius + 2.5, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
   }
 
   private triggerGameOver(): void {
     if (this.gameOver) return;
     this.gameOver = true;
-    const s = this.getSettings();
-    if (s.haptics && typeof (window as unknown as { triggerHaptic?: (t: string) => void }).triggerHaptic === "function") {
-      (window as unknown as { triggerHaptic: (t: string) => void }).triggerHaptic("error");
-    }
-    if (typeof (window as unknown as { submitScore?: (n: number) => void }).submitScore === "function") {
-      (window as unknown as { submitScore: (n: number) => void }).submitScore(Math.max(0, Math.floor(this.score)));
-    }
+    submitFinalScoreToPlatform(this.score);
     this.onGameOver(this.score);
     console.log("[SuikaGame]", "game over score", this.score);
   }
 
-  draw(ctx: CanvasRenderingContext2D, layout: GameLayout): void {
+  draw(
+    ctx: CanvasRenderingContext2D,
+    layout: GameLayout,
+    nowMs: number = performance.now(),
+    losingBallHighlightRamp = 1,
+    reducedMotion = false,
+  ): void {
     this.layout = layout;
     const bodies = Matter.Composite.allBodies(this.engine.world);
+    const mergeHintTargetId =
+      !this.gameOver && this.pendingDrop && this.pointerActive
+        ? this.findSimilarBallIdForDropHint(bodies, this.currentTier, this.dropperX)
+        : null;
+    let highlight: { body: Matter.Body; data: BallRuntime } | null = null;
     for (const body of bodies) {
       if (body.label !== BALL_LABEL) continue;
       const data = this.ballData.get(body.id);
       if (!data) continue;
+      if (this.gameOver && body.id === this.losingBallBodyId) {
+        highlight = { body, data };
+      }
       const img = this.images.get(data.assetId);
       if (!img) continue;
       const sx = body.position.x + data.spriteOffsetX;
@@ -433,11 +645,16 @@ export class SuikaGame {
       const dr = data.displayRadius;
       const dw = dr * 2 * (img.naturalWidth / Math.min(img.naturalWidth, img.naturalHeight));
       const dh = dr * 2 * (img.naturalHeight / Math.min(img.naturalWidth, img.naturalHeight));
+      const hintScl = this.preDropMergeHintScale(body.id, mergeHintTargetId, nowMs, reducedMotion);
       ctx.save();
       ctx.translate(sx, sy);
       ctx.rotate(body.angle);
+      ctx.scale(hintScl, hintScl);
       ctx.drawImage(img, -dw / 2, -dh / 2, dw, dh);
       ctx.restore();
+    }
+    if (highlight) {
+      this.drawLosingBallHighlight(ctx, highlight.body, highlight.data, nowMs, losingBallHighlightRamp);
     }
 
     if (!this.gameOver && this.pendingDrop && this.pointerActive) {
@@ -446,16 +663,29 @@ export class SuikaGame {
       const r = tierRadius(layout, this.currentTier, this.tierIds.length);
       const px = this.dropperX;
       const py = layout.cupY + r + 14;
+      const now = performance.now();
+      const previewInMs = 165;
+      let previewScl = 1;
+      if (this.previewAnimStartAt > 0) {
+        const elapsed = now - this.previewAnimStartAt;
+        if (elapsed < previewInMs) {
+          const u = elapsed / previewInMs;
+          const ease = 1 - (1 - u) * (1 - u) * (1 - u);
+          previewScl = 0.22 + 0.78 * ease;
+        }
+      }
       ctx.save();
-      ctx.globalAlpha = 0.55;
+      ctx.globalAlpha = 0.45 + 0.2 * previewScl;
       if (preview && preview.complete) {
-        const dw = r * 2 * (preview.naturalWidth / Math.min(preview.naturalWidth, preview.naturalHeight));
-        const dh = r * 2 * (preview.naturalHeight / Math.min(preview.naturalWidth, preview.naturalHeight));
+        let dw = r * 2 * (preview.naturalWidth / Math.min(preview.naturalWidth, preview.naturalHeight));
+        let dh = r * 2 * (preview.naturalHeight / Math.min(preview.naturalWidth, preview.naturalHeight));
+        dw *= previewScl;
+        dh *= previewScl;
         ctx.drawImage(preview, px - dw / 2, py - dh / 2, dw, dh);
       } else {
         ctx.fillStyle = "rgba(255, 159, 67, 0.45)";
         ctx.beginPath();
-        ctx.arc(px, py, r, 0, Math.PI * 2);
+        ctx.arc(px, py, r * previewScl, 0, Math.PI * 2);
         ctx.fill();
       }
       ctx.restore();

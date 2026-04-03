@@ -1,14 +1,18 @@
+import { getBallAssets } from "./ballAssets";
+import { createSuikaAudio } from "./gameAudio";
+import { drawGameBg, drawGameplayAtmosphere, loadGameBgImage } from "./gameBg";
+import { BottomSparkles } from "./bottomSparkles";
+import { MergeFanfare } from "./mergeFanfare";
+import { MergeJuice, mergeWordTier } from "./mergeJuice";
+import { drawProceduralCupNet } from "./cupNetProcedural";
 import { runBoundsEditor } from "./boundsEditor";
 import { SuikaGame } from "./suikaGame";
-
 const STORAGE_KEY = "suikaSettings";
-
 interface Settings {
   music: boolean;
   fx: boolean;
   haptics: boolean;
 }
-
 interface Layout {
   w: number;
   h: number;
@@ -18,7 +22,6 @@ interface Layout {
   cupH: number;
   dangerY: number;
 }
-
 function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -33,17 +36,111 @@ function loadSettings(): Settings {
     return { music: true, fx: true, haptics: true };
   }
 }
-
 function saveSettings(s: Settings): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
 }
-
 function triggerHaptic(type: "light" | "medium" | "heavy" | "success" | "error", settings: Settings): void {
   if (!settings.haptics) return;
   const fn = (window as unknown as { triggerHaptic?: (t: string) => void }).triggerHaptic;
   if (typeof fn === "function") fn(type);
 }
-
+/** Start menu ball pit — uses suika/assets sprites when available, else colored placeholders. */
+function initStartMenuBallField(): void {
+  const layer = document.querySelector("#startScreen .start-balls-layer");
+  if (!layer) return;
+  layer.innerHTML = "";
+  const assets = getBallAssets();
+  const useSprites = assets.length > 0;
+  const colors = [
+    "#ff9f43",
+    "#ffb8c8",
+    "#7dcc7a",
+    "#ffe566",
+    "#7ec8e3",
+    "#c9a0ff",
+    "#ff8b7a",
+    "#98e0d0",
+    "#ffd54d",
+    "#a8e6cf",
+    "#ffab91",
+    "#80deea",
+  ];
+  const coarse = window.matchMedia("(pointer: coarse)").matches;
+  const cols = coarse ? 6 : 11;
+  const rows = coarse ? 9 : 9;
+  const total = cols * rows;
+  const cellW = 100 / cols;
+  const cellH = 100 / rows;
+  for (let i = 0; i < total; i++) {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const wave = col + row;
+    const b = document.createElement("span");
+    b.className = "menu-silly-ball";
+    if (i % 3 === 0) b.classList.add("menu-silly-ball--rev");
+    if (i % 5 === 0) b.classList.add("menu-silly-ball--wobble");
+    b.setAttribute("aria-hidden", "true");
+    const jx = Math.sin(i * 1.6180339) * 4.2;
+    const jy = Math.cos(i * 2.7182818) * 4.2;
+    let leftPct: number;
+    let topPct: number;
+    if (coarse) {
+      const jitterX =
+        Math.sin(i * 2.47) * cellW * 0.26 + Math.cos(i * 3.19) * cellW * 0.11;
+      const jitterY =
+        Math.cos(i * 1.91) * cellH * 0.22 + Math.sin(i * 2.73) * cellH * 0.09;
+      leftPct = cellW * (col + 0.5) + jitterX;
+      topPct = cellH * (row + 0.5) + jitterY;
+    } else {
+      leftPct = 2 + (col / Math.max(1, cols - 1)) * 96 + jx * 0.12;
+      topPct = 3 + (row / Math.max(1, rows - 1)) * 94 + jy * 0.1;
+    }
+    const clampedLeft = Math.max(1, Math.min(99, leftPct));
+    const clampedTop = Math.max(1, Math.min(99, topPct));
+    b.style.left = clampedLeft + "%";
+    b.style.top = clampedTop + "%";
+    const sz = coarse
+      ? 20 + (i % 5) * 4 + (wave % 3) * 3
+      : 16 + (i % 8) * 5 + (wave % 4) * 3;
+    b.style.width = sz + "px";
+    b.style.height = sz + "px";
+    const rotDeg = (i * 47) % 28 - 14;
+    b.style.setProperty("--wave", String(wave));
+    b.style.setProperty("--rot", rotDeg + "deg");
+    const diagSigns: [number, number][] = [
+      [1, 1],
+      [1, -1],
+      [-1, 1],
+      [-1, -1],
+    ];
+    const [sx, sy] = diagSigns[i % 4];
+    const diagMag = coarse ? 1.55 + (wave % 4) * 0.32 : 2.45 + (wave % 5) * 0.4;
+    b.style.setProperty("--diag-x", sx * diagMag + "vmin");
+    b.style.setProperty("--diag-y", sy * diagMag + "vmin");
+    b.style.opacity = String(useSprites ? 0.42 + ((i + wave * 2) % 5) * 0.06 : 0.3 + ((i + wave * 2) % 5) * 0.07);
+    b.style.zIndex = String(1 + (i % 4));
+    if (useSprites) {
+      b.classList.add("menu-silly-ball--sprite");
+      const asset = assets[i % assets.length];
+      const img = document.createElement("img");
+      img.src = asset.url;
+      img.alt = "";
+      img.decoding = "async";
+      img.draggable = false;
+      b.appendChild(img);
+    } else {
+      b.style.background = colors[i % colors.length];
+    }
+    layer.appendChild(b);
+  }
+  console.log(
+    "[initStartMenuBallField]",
+    String(total),
+    coarse ? "coarse layout" : "fine layout",
+    useSprites ? "sprite orbs" : "placeholder orbs",
+    useSprites ? "(" + String(assets.length) + " assets)" : "",
+  );
+}
 function wantsBoundsEditor(): boolean {
   const q = new URLSearchParams(window.location.search);
   if (q.has("bounds")) return true;
@@ -54,20 +151,19 @@ function wantsBoundsEditor(): boolean {
   }
   return false;
 }
-
 if (wantsBoundsEditor()) {
   document.getElementById("startScreen")?.classList.add("hidden");
-  document.getElementById("hud")?.classList.add("hidden");
-  document.getElementById("settingsBtn")?.classList.add("hidden");
+  document.getElementById("gameplayShell")?.classList.add("hidden");
   document.getElementById("settingsModal")?.classList.add("hidden");
-  document.getElementById("gameCanvas")?.classList.add("hidden");
   runBoundsEditor();
 } else {
   bootstrapGame();
 }
-
 function bootstrapGame(): void {
   let settings = loadSettings();
+  const audio = createSuikaAudio();
+  audio.applySettings(settings.music, settings.fx);
+  audio.setGameplayActive(false);
   let layout: Layout = {
     w: 0,
     h: 0,
@@ -77,7 +173,6 @@ function bootstrapGame(): void {
     cupH: 0,
     dangerY: 0,
   };
-
   const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
   const ctx: CanvasRenderingContext2D =
     canvas.getContext("2d") ??
@@ -85,11 +180,14 @@ function bootstrapGame(): void {
       throw new Error("2D context unavailable");
     })();
   const startScreen = document.getElementById("startScreen")!;
+  const gameplayShell = document.getElementById("gameplayShell")!;
+  const mergeJuiceRoot = document.getElementById("mergeJuiceRoot");
   const btnStart = document.getElementById("btnStart")!;
   const noAssetWarning = document.getElementById("noAssetWarning")!;
   const hud = document.getElementById("hud")!;
   const scoreValue = document.getElementById("scoreValue")!;
   const nextOrb = document.getElementById("nextOrb")!;
+  const evolutionChain = document.getElementById("evolutionChain")!;
   const settingsBtn = document.getElementById("settingsBtn")!;
   const settingsModal = document.getElementById("settingsModal")!;
   const btnCloseSettings = document.getElementById("btnCloseSettings")!;
@@ -99,22 +197,42 @@ function bootstrapGame(): void {
   const gameOverEl = document.getElementById("gameOver")!;
   const finalScoreEl = document.getElementById("finalScore")!;
   const btnRestart = document.getElementById("btnRestart")!;
-  const btnDrop = document.getElementById("btnDrop")!;
-
   let game: SuikaGame | null = null;
   let playing = false;
-
+  const GO_ZOOM_MS = 1180;
+  const GO_FOG_MS = 720;
+  const GO_PANEL_MS = 1950;
+  const GO_MAX_ZOOM = 1.4;
+  type GameOverPhase = "none" | "dramatic" | "panel";
+  let gameOverPhase: GameOverPhase = "none";
+  let gameOverDramaStartedAt = 0;
+  let gameOverPanelRevealPending = false;
+  function smoothstep01(t: number): number {
+    const x = Math.max(0, Math.min(1, t));
+    return x * x * (3 - 2 * x);
+  }
+  let gameBgImage: HTMLImageElement | null = null;
+  void loadGameBgImage().then((im) => {
+    gameBgImage = im;
+  });
+  const bottomSparkles = new BottomSparkles();
+  const mergeJuice = new MergeJuice();
+  const mergeFanfare = new MergeFanfare();
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let frameClockMs = performance.now();
+  /** When > 0, cup net scales up from this time (gameplay intro). */
+  let netIntroStartedAtMs = 0;
+  let hudIntroClearTimer = 0;
   function applyToggleUi(btn: HTMLElement, on: boolean): void {
     btn.classList.toggle("on", on);
     btn.setAttribute("aria-pressed", on ? "true" : "false");
   }
-
   function syncSettingsUi(): void {
     applyToggleUi(toggleMusic, settings.music);
     applyToggleUi(toggleFx, settings.fx);
     applyToggleUi(toggleHaptics, settings.haptics);
+    audio.applySettings(settings.music, settings.fx);
   }
-
   function calculateLayout(): void {
     const w = window.innerWidth;
     const h = window.innerHeight;
@@ -126,7 +244,6 @@ function bootstrapGame(): void {
     const dangerY = cupY + 72;
     layout = { w, h, cupX, cupY, cupW, cupH, dangerY };
   }
-
   function resizeCanvas(): void {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
@@ -134,24 +251,53 @@ function bootstrapGame(): void {
     game?.setLayout(layout);
     console.log("[resizeCanvas]", layout.w + "x" + layout.h);
   }
-
   function drawCup(): void {
     const { w, h, cupX, cupY, cupW, cupH, dangerY } = layout;
-    const sky = ctx.createLinearGradient(0, 0, 0, h);
-    sky.addColorStop(0, "#a8ddff");
-    sky.addColorStop(0.42, "#d8f0ff");
-    sky.addColorStop(0.75, "#e5f8ef");
-    sky.addColorStop(1, "#c5ecba");
-    ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, w, h);
-
-    const sun = ctx.createRadialGradient(w * 0.88, h * 0.06, 0, w * 0.88, h * 0.06, h * 0.38);
-    sun.addColorStop(0, "rgba(255, 236, 160, 0.5)");
-    sun.addColorStop(1, "rgba(255, 236, 160, 0)");
-    ctx.fillStyle = sun;
-    ctx.fillRect(0, 0, w, h);
-
     const cupR = 16;
+    const bgImg = gameBgImage;
+    if (
+      game !== null &&
+      bgImg !== null &&
+      bgImg.complete &&
+      bgImg.naturalWidth > 0
+    ) {
+      drawGameBg(ctx, bgImg, w, h);
+    } else {
+      const sky = ctx.createLinearGradient(0, 0, 0, h);
+      sky.addColorStop(0, "#a8ddff");
+      sky.addColorStop(0.42, "#d8f0ff");
+      sky.addColorStop(0.75, "#e5f8ef");
+      sky.addColorStop(1, "#c5ecba");
+      ctx.fillStyle = sky;
+      ctx.fillRect(0, 0, w, h);
+      const sun = ctx.createRadialGradient(w * 0.88, h * 0.06, 0, w * 0.88, h * 0.06, h * 0.38);
+      sun.addColorStop(0, "rgba(255, 236, 160, 0.5)");
+      sun.addColorStop(1, "rgba(255, 236, 160, 0)");
+      ctx.fillStyle = sun;
+      ctx.fillRect(0, 0, w, h);
+    }
+    const mjFlash = mergeJuice.getFlash();
+    if (mjFlash > 0.004) {
+      const combo = mergeJuice.getCombo();
+      ctx.fillStyle = "rgba(255, 247, 218," + (mjFlash * 0.32) + ")";
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = "rgba(255, 205, 130," + (mjFlash * (0.12 + combo * 0.022)) + ")";
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = "rgba(170, 228, 255," + (mjFlash * (0.07 + combo * 0.012)) + ")";
+      ctx.fillRect(0, 0, w, h);
+    }
+    const infernoHeat = game !== null ? mergeJuice.getInfernoHeat() : 0;
+    if (infernoHeat > 0.02) {
+      ctx.fillStyle = "rgba(255, 95, 40, " + (infernoHeat * 0.38).toFixed(3) + ")";
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = "rgba(255, 40, 20, " + (infernoHeat * 0.22).toFixed(3) + ")";
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = "rgba(255, 200, 80, " + (infernoHeat * 0.12).toFixed(3) + ")";
+      ctx.fillRect(0, 0, w, h);
+    }
+    if (game !== null) {
+      drawGameplayAtmosphere(ctx, w, h);
+    }
     ctx.lineJoin = "round";
     ctx.strokeStyle = "#2d4a6e";
     ctx.lineWidth = 6;
@@ -163,7 +309,6 @@ function bootstrapGame(): void {
     ctx.beginPath();
     ctx.roundRect(cupX, cupY, cupW, cupH, cupR);
     ctx.stroke();
-
     ctx.setLineDash([10, 8]);
     ctx.strokeStyle = "#ff8b7a";
     ctx.lineWidth = 3;
@@ -172,65 +317,326 @@ function bootstrapGame(): void {
     ctx.lineTo(cupX + cupW - 10, dangerY);
     ctx.stroke();
     ctx.setLineDash([]);
-
     ctx.fillStyle = "#3a4f6c";
     ctx.font = "700 13px Fredoka, system-ui, sans-serif";
     ctx.textAlign = "center";
     ctx.fillText("Stay below!", cupX + cupW / 2, dangerY - 10);
   }
-
   function drawFrame(): void {
+    const nowMs = performance.now();
+    const dt = Math.min(0.055, (nowMs - frameClockMs) / 1000);
+    frameClockMs = nowMs;
+    mergeJuice.update(dt);
     drawCup();
+    mergeFanfare.update(dt);
     if (game) {
       if (playing && !game.isGameOver()) {
         game.update(0);
         game.stepPhysics();
       }
       if (playing || game.isGameOver()) {
-        game.draw(ctx, layout);
+        const loseRamp =
+          gameOverPhase === "dramatic"
+            ? smoothstep01((nowMs - gameOverDramaStartedAt) / 540)
+            : 1;
+        game.draw(ctx, layout, nowMs, loseRamp, reduceMotion);
+        mergeFanfare.draw(ctx, layout.w, layout.h, nowMs);
+        drawProceduralCupNet(
+          ctx,
+          layout,
+          mergeJuice.getInfernoHeat(),
+          nowMs,
+          getNetIntroScale(nowMs),
+        );
+      }
+    }
+    if (gameOverPhase === "dramatic" && game !== null && game.isGameOver()) {
+      const elapsed = nowMs - gameOverDramaStartedAt;
+      const fogU = smoothstep01(elapsed / GO_FOG_MS);
+      const fogA = fogU * 0.78;
+      ctx.fillStyle = "rgba(6, 8, 18, " + fogA.toFixed(4) + ")";
+      ctx.fillRect(0, 0, layout.w, layout.h);
+      ctx.fillStyle = "rgba(0, 0, 0, " + (fogU * 0.22).toFixed(4) + ")";
+      ctx.fillRect(0, 0, layout.w, layout.h);
+      if (elapsed >= GO_PANEL_MS && !gameOverPanelRevealPending) {
+        gameOverPanelRevealPending = true;
+        revealGameOverPanel();
+      }
+    }
+    const sparklesOn = !reduceMotion && game !== null && playing && !game.isGameOver();
+    bottomSparkles.update(dt, layout, sparklesOn);
+    if (sparklesOn) {
+      bottomSparkles.draw(ctx, layout, true);
+    }
+    if (mergeJuiceRoot) {
+      if (gameOverPhase === "dramatic" && game !== null && game.isGameOver() && !reduceMotion) {
+        const elapsed = nowMs - gameOverDramaStartedAt;
+        const zoomU = smoothstep01(elapsed / GO_ZOOM_MS);
+        const zs = 1 + (GO_MAX_ZOOM - 1) * zoomU;
+        const focus = game.getGameOverFocus();
+        const ox = focus ? focus.cx : layout.cupX + layout.cupW * 0.5;
+        const oy = focus ? focus.cy : layout.dangerY + (layout.cupY + layout.cupH - layout.dangerY) * 0.35;
+        mergeJuiceRoot.style.transformOrigin = ox.toFixed(1) + "px " + oy.toFixed(1) + "px";
+        mergeJuiceRoot.style.transform = "scale(" + zs.toFixed(4) + ")";
+      } else {
+        const juiceOn = !reduceMotion && game !== null && playing && !game.isGameOver();
+        if (juiceOn) {
+          const sh = mergeJuice.getShakePx();
+          const sc = mergeJuice.getScale() * mergeJuice.getNetZoomFactor();
+          const ox = layout.cupX + layout.cupW * 0.5;
+          const oy = layout.dangerY + (layout.cupY + layout.cupH - layout.dangerY) * 0.4;
+          mergeJuiceRoot.style.transformOrigin = ox.toFixed(1) + "px " + oy.toFixed(1) + "px";
+          mergeJuiceRoot.style.transform =
+            "translate(" + sh.x.toFixed(2) + "px," + sh.y.toFixed(2) + "px) scale(" + sc.toFixed(4) + ")";
+        } else {
+          mergeJuiceRoot.style.transformOrigin = "";
+          mergeJuiceRoot.style.transform = "";
+        }
       }
     }
     requestAnimationFrame(drawFrame);
   }
-
   function openSettings(): void {
     syncSettingsUi();
-    settingsModal.classList.remove("hidden");
+    settingsModal.classList.remove("settings-modal-root--closed");
+    settingsModal.classList.add("settings-modal-root--open");
+    settingsModal.setAttribute("aria-hidden", "false");
   }
-
   function closeSettings(): void {
-    settingsModal.classList.add("hidden");
+    settingsModal.classList.remove("settings-modal-root--open");
+    settingsModal.classList.add("settings-modal-root--closed");
+    settingsModal.setAttribute("aria-hidden", "true");
   }
-
-  function showGameOver(score: number): void {
-    playing = false;
-    finalScoreEl.textContent = String(Math.floor(score));
+  function revealGameOverPanel(): void {
+    if (gameOverPhase !== "dramatic") return;
+    gameOverPhase = "panel";
     gameOverEl.classList.remove("hidden");
+    void gameOverEl.offsetWidth;
+    gameOverEl.classList.add("game-over--reveal");
     hud.classList.add("hidden");
     settingsBtn.classList.add("hidden");
-    btnDrop.classList.add("hidden");
+    if (mergeJuiceRoot) {
+      mergeJuiceRoot.style.transformOrigin = "";
+      mergeJuiceRoot.style.transform = "";
+    }
+    console.log("[revealGameOverPanel]", "shown");
   }
-
+  function beginGameOverDrama(score: number): void {
+    finalScoreEl.textContent = String(Math.floor(score));
+    playing = false;
+    triggerHaptic("error", settings);
+    audio.setGameplayActive(false);
+    audio.enterGameOverMusic();
+    audio.playGameOver();
+    gameOverEl.classList.remove("game-over--reveal");
+    if (reduceMotion) {
+      gameOverPhase = "panel";
+      gameOverPanelRevealPending = false;
+      gameOverEl.classList.remove("hidden");
+      void gameOverEl.offsetWidth;
+      gameOverEl.classList.add("game-over--reveal");
+      hud.classList.add("hidden");
+      settingsBtn.classList.add("hidden");
+      console.log("[beginGameOverDrama]", "reduced motion, panel only");
+      return;
+    }
+    gameOverPhase = "dramatic";
+    gameOverDramaStartedAt = performance.now();
+    gameOverPanelRevealPending = false;
+    hud.classList.add("hidden");
+    settingsBtn.classList.add("hidden");
+    console.log("[beginGameOverDrama]", "dramatic sequence");
+  }
   function updateNextOrbPreview(_assetId: string, url: string): void {
     nextOrb.style.backgroundImage = "url(\"" + url + "\")";
     nextOrb.style.backgroundSize = "contain";
     nextOrb.style.backgroundPosition = "center";
     nextOrb.style.backgroundRepeat = "no-repeat";
+    if (reduceMotion) return;
+    nextOrb.classList.remove("next-orb--enter");
+    void nextOrb.offsetWidth;
+    nextOrb.classList.add("next-orb--enter");
+    const clearEnter = (): void => {
+      nextOrb.classList.remove("next-orb--enter");
+    };
+    nextOrb.addEventListener("animationend", clearEnter, { once: true });
+    window.setTimeout(clearEnter, 520);
   }
-
+  function rebuildEvolutionHud(g: SuikaGame): void {
+    const chain = g.getEvolutionChain();
+    evolutionChain.innerHTML = "";
+    if (chain.length === 0) return;
+    const n = chain.length;
+    const coarse = window.matchMedia("(pointer: coarse)").matches;
+    for (let tier = 0; tier < n; tier++) {
+      if (tier > 0) {
+        const arrow = document.createElement("span");
+        arrow.className = "hud-evolution-arrow";
+        arrow.setAttribute("aria-hidden", "true");
+        arrow.style.setProperty("--evo-arrow-delay", (tier - 1) * 0.22 + 0.06 + "s");
+        evolutionChain.appendChild(arrow);
+      }
+      const url = chain[tier].url;
+      const node = document.createElement("span");
+      node.className = "hud-evolution-node";
+      node.style.setProperty("--evo-delay", tier * 0.18 + "s");
+      const sz = coarse
+        ? n <= 1
+          ? 24
+          : Math.round(14 + (tier / (n - 1)) * 17)
+        : n <= 1
+          ? 30
+          : Math.round(20 + (tier / (n - 1)) * 21);
+      node.style.width = sz + "px";
+      node.style.height = sz + "px";
+      const img = document.createElement("img");
+      img.src = url;
+      img.alt = "";
+      img.decoding = "async";
+      img.draggable = false;
+      node.appendChild(img);
+      evolutionChain.appendChild(node);
+    }
+    console.log("[rebuildEvolutionHud]", String(chain.length), "steps");
+  }
+  const GAMEPLAY_SLIDE_MS = 520;
+  const NET_INTRO_MS = 420;
+  const HUD_INTRO_CLASS_MS = 820;
+  function hideStartAfterSlideIn(): void {
+    startScreen.classList.add("hidden");
+  }
+  function getNetIntroScale(nowMs: number): number {
+    if (reduceMotion || netIntroStartedAtMs <= 0) return 1;
+    const u = (nowMs - netIntroStartedAtMs) / NET_INTRO_MS;
+    if (u >= 1) return 1;
+    return 0.74 + 0.26 * smoothstep01(u);
+  }
+  function beginGameplayIntroEffects(): void {
+    if (reduceMotion) return;
+    window.clearTimeout(hudIntroClearTimer);
+    netIntroStartedAtMs = performance.now();
+    hud.classList.remove("hud--intro-pop");
+    settingsBtn.classList.remove("hud--intro-pop");
+    void hud.offsetWidth;
+    hud.classList.add("hud--intro-pop");
+    settingsBtn.classList.add("hud--intro-pop");
+    hudIntroClearTimer = window.setTimeout(() => {
+      hudIntroClearTimer = 0;
+      hud.classList.remove("hud--intro-pop");
+      settingsBtn.classList.remove("hud--intro-pop");
+      netIntroStartedAtMs = 0;
+    }, HUD_INTRO_CLASS_MS);
+    console.log("[beginGameplayIntroEffects]", "hud + net intro");
+  }
+  function startGameplayShellSlideIn(hideStartWhenDone: boolean): void {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        gameplayShell.classList.add("gameplay-shell--in");
+      });
+    });
+    let settled = false;
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      gameplayShell.removeEventListener("transitionend", onInEnd);
+      window.clearTimeout(fallbackIn);
+      if (hideStartWhenDone) hideStartAfterSlideIn();
+      beginGameplayIntroEffects();
+    };
+    const onInEnd = (e: TransitionEvent): void => {
+      if (e.target !== gameplayShell || e.propertyName !== "transform") return;
+      finish();
+    };
+    gameplayShell.addEventListener("transitionend", onInEnd);
+    const fallbackIn = window.setTimeout(finish, GAMEPLAY_SLIDE_MS + 100);
+  }
+  function runReplayShellOutThenIn(): void {
+    void gameplayShell.offsetWidth;
+    let outDone = false;
+    const afterSlideOut = (): void => {
+      if (outDone) return;
+      outDone = true;
+      gameplayShell.removeEventListener("transitionend", onOutEnd);
+      window.clearTimeout(fallbackOut);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          startGameplayShellSlideIn(false);
+        });
+      });
+    };
+    const onOutEnd = (e: TransitionEvent): void => {
+      if (e.target !== gameplayShell || e.propertyName !== "transform") return;
+      afterSlideOut();
+    };
+    gameplayShell.addEventListener("transitionend", onOutEnd);
+    const fallbackOut = window.setTimeout(afterSlideOut, GAMEPLAY_SLIDE_MS + 100);
+    gameplayShell.classList.remove("gameplay-shell--in");
+  }
   async function onStart(): Promise<void> {
+    window.clearTimeout(hudIntroClearTimer);
+    hudIntroClearTimer = 0;
+    hud.classList.remove("hud--intro-pop");
+    settingsBtn.classList.remove("hud--intro-pop");
     triggerHaptic("light", settings);
     noAssetWarning.classList.add("hidden");
     calculateLayout();
-
     if (!game) {
       const g = new SuikaGame(layout, {
+        /* HUD updates here; host score uses submitFinalScoreToPlatform() once on game over (AGENTS.md). */
         onScoreChange: (n) => {
           scoreValue.textContent = String(Math.floor(n));
         },
         onNextChange: (id, url) => updateNextOrbPreview(id, url),
-        onGameOver: (s) => showGameOver(s),
+        onGameOver: (s) => beginGameOverDrama(s),
         getSettings: () => ({ haptics: settings.haptics }),
+        onMerge: (p) => {
+          audio.playMerge();
+          const tier = mergeWordTier(p.scoreAdd, p.newTier);
+          if (tier === "inferno") {
+            triggerHaptic("success", settings);
+          } else if (tier === "good") {
+            triggerHaptic("medium", settings);
+          } else {
+            triggerHaptic("light", settings);
+          }
+          mergeFanfare.spawn(
+            p,
+            layout.w,
+            layout.h,
+            {
+              cupX: layout.cupX,
+              cupY: layout.cupY,
+              cupW: layout.cupW,
+              cupH: layout.cupH,
+            },
+            tier,
+            reduceMotion,
+          );
+          if (!reduceMotion) {
+            mergeJuice.trigger();
+            if (tier === "inferno") {
+              mergeJuice.triggerInfernoPulse();
+              mergeJuice.triggerNetZoom(1.48);
+            } else if (tier === "good") {
+              mergeJuice.triggerNetZoom(1);
+            }
+          }
+          evolutionChain.classList.remove("hud-evolution-scroll--merge-pulse");
+          void evolutionChain.offsetWidth;
+          evolutionChain.classList.add("hud-evolution-scroll--merge-pulse");
+          window.setTimeout(() => {
+            evolutionChain.classList.remove("hud-evolution-scroll--merge-pulse");
+          }, 700);
+        },
+        onDrop: () => audio.playDrop(),
+        onWallBounce: (sp) => {
+          audio.playBounce(sp > 3.8);
+          if (sp > 3.8) {
+            triggerHaptic("medium", settings);
+          } else if (sp > 0.85) {
+            triggerHaptic("light", settings);
+          }
+        },
       });
       try {
         const ok = await g.loadAssets();
@@ -248,61 +654,72 @@ function bootstrapGame(): void {
         return;
       }
     }
-
     game.resetRound(layout);
+    rebuildEvolutionHud(game);
     playing = true;
     scoreValue.textContent = "0";
-    startScreen.classList.add("hidden");
+    gameOverPhase = "none";
+    gameOverPanelRevealPending = false;
+    gameOverEl.classList.remove("game-over--reveal");
     gameOverEl.classList.add("hidden");
     hud.classList.remove("hidden");
     settingsBtn.classList.remove("hidden");
-    btnDrop.classList.remove("hidden");
+    const fromMainMenu = !startScreen.classList.contains("hidden");
+    const replayFromGameOver =
+      !fromMainMenu && !reduceMotion && gameplayShell.classList.contains("gameplay-shell--in");
+    if (fromMainMenu && !reduceMotion) {
+      startGameplayShellSlideIn(true);
+    } else if (replayFromGameOver) {
+      runReplayShellOutThenIn();
+    } else {
+      gameplayShell.classList.add("gameplay-shell--in");
+      startScreen.classList.add("hidden");
+      if (!reduceMotion) {
+        beginGameplayIntroEffects();
+      }
+    }
+    audio.setGameplayActive(true);
     console.log("[onStart]", "playing");
   }
-
-  function sessionScoreUi(): void {
-    /* score only in HUD */
-  }
-
   btnStart.addEventListener("click", () => {
+    audio.playUi();
     void onStart();
   });
-
   btnRestart.addEventListener("click", () => {
     triggerHaptic("light", settings);
+    audio.playUi();
     void onStart();
   });
-
   settingsBtn.addEventListener("click", () => {
     triggerHaptic("light", settings);
+    audio.playUi();
     openSettings();
   });
-
   btnCloseSettings.addEventListener("click", () => {
     triggerHaptic("light", settings);
+    audio.playUi();
     closeSettings();
   });
-
   settingsModal.addEventListener("click", (e) => {
     if (e.target === settingsModal) closeSettings();
   });
-
   function bindToggle(btn: HTMLElement, key: keyof Pick<Settings, "music" | "fx" | "haptics">): void {
     btn.addEventListener("click", () => {
       triggerHaptic("light", settings);
+      audio.playUi();
       settings[key] = !settings[key];
       saveSettings(settings);
       applyToggleUi(btn, settings[key]);
+      audio.applySettings(settings.music, settings.fx);
     });
   }
-
   bindToggle(toggleMusic, "music");
   bindToggle(toggleFx, "fx");
   bindToggle(toggleHaptics, "haptics");
-
   canvas.addEventListener("pointerdown", (e) => {
     if (!playing || !game || game.isGameOver()) return;
     canvas.setPointerCapture(e.pointerId);
+    triggerHaptic("light", settings);
     game.handlePointer(e.clientX, e.clientY, canvas);
   });
   canvas.addEventListener("pointermove", (e) => {
@@ -331,15 +748,6 @@ function bootstrapGame(): void {
       /* ignore */
     }
   });
-
-  btnDrop.addEventListener("click", () => {
-    if (!playing || !game) return;
-    if (game.canDrop()) {
-      game.tryDrop();
-      triggerHaptic("medium", settings);
-    }
-  });
-
   window.addEventListener("keydown", (e) => {
     if (!playing || !game || game.isGameOver()) return;
     const t = e.target as HTMLElement;
@@ -358,14 +766,12 @@ function bootstrapGame(): void {
       }
     }
   });
-
   window.addEventListener("resize", () => {
     resizeCanvas();
   });
-
+  initStartMenuBallField();
   syncSettingsUi();
   resizeCanvas();
   requestAnimationFrame(drawFrame);
-
   console.log("[bootstrapGame]", "ready");
 }

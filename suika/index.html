@@ -9,7 +9,7 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <title>Suika</title>
     <style>
-      @import url("https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap");
+      @import url("https://fonts.googleapis.com/css2?family=Bungee&family=Fredoka:wght@400;500;600;700&display=swap");
 
       :root {
         --sky-bright: #bfe9ff;
@@ -31,12 +31,15 @@
         --panel: rgba(255, 253, 247, 0.94);
         --stroke: rgba(58, 79, 108, 0.35);
         --panel-border: #3d5a80;
-        --settings-top: 45px;
+        /* Relative HUD insets — scale with viewport + respect safe areas */
+        --hud-pad-x: max(env(safe-area-inset-left, 0px), clamp(0.625rem, 3.2vw, 1.375rem));
+        --hud-pad-x-end: max(env(safe-area-inset-right, 0px), clamp(0.625rem, 3.2vw, 1.375rem));
+        --settings-top: max(env(safe-area-inset-top, 0px), clamp(2.75rem, 6vmin, 3.5rem));
       }
 
       @media (pointer: coarse) {
         :root {
-          --settings-top: 120px;
+          --settings-top: max(env(safe-area-inset-top, 0px), clamp(5.25rem, 17vmin, 7.25rem));
         }
       }
 
@@ -61,9 +64,42 @@
         color: var(--text);
       }
 
+      /* Slides in from the right over the main menu */
+      #gameplayShell {
+        position: fixed;
+        inset: 0;
+        z-index: 22;
+        transform: translateX(100%);
+        transition: transform 0.5s cubic-bezier(0.32, 0.72, 0, 1);
+        pointer-events: none;
+        will-change: transform;
+      }
+
+      #gameplayShell.gameplay-shell--in {
+        transform: translateX(0);
+        pointer-events: auto;
+        will-change: auto;
+      }
+
+      #mergeJuiceRoot {
+        position: absolute;
+        inset: 0;
+        z-index: 0;
+        transform-origin: 50% 44%;
+        pointer-events: none;
+      }
+
+      #mergeJuiceRoot #gameCanvas {
+        pointer-events: auto;
+      }
+
+      #mergeJuiceRoot #settingsBtn {
+        pointer-events: auto;
+      }
+
       #gameCanvas {
         display: block;
-        position: fixed;
+        position: absolute;
         inset: 0;
         width: 100%;
         height: 100%;
@@ -74,7 +110,171 @@
         display: none !important;
       }
 
-      /* Start — toon / sports-day */
+      /* Start — toon / sports-day + menu motion */
+      @keyframes startBlobDriftA {
+        0%,
+        100% {
+          transform: translate(0, 0) scale(1);
+        }
+        40% {
+          transform: translate(14px, 20px) scale(1.06);
+        }
+        70% {
+          transform: translate(-10px, 12px) scale(0.96);
+        }
+      }
+
+      @keyframes startBlobDriftB {
+        0%,
+        100% {
+          transform: translate(0, 0) scale(1);
+        }
+        45% {
+          transform: translate(-16px, -12px) scale(1.04);
+        }
+        75% {
+          transform: translate(10px, -20px) scale(0.95);
+        }
+      }
+
+      @keyframes startTitlePop {
+        0% {
+          opacity: 0;
+          transform: scale(0.5) translateY(36px);
+        }
+        58% {
+          opacity: 1;
+          transform: scale(1.09) translateY(-6px);
+        }
+        78% {
+          transform: scale(0.97) translateY(3px);
+        }
+        100% {
+          opacity: 1;
+          transform: scale(1) translateY(0);
+        }
+      }
+
+      @keyframes startTitleGradientFlow {
+        0%,
+        100% {
+          background-position: 0% 50%;
+          filter: drop-shadow(0 4px 0 rgba(58, 79, 108, 0.18)) drop-shadow(0 0 24px rgba(255, 159, 67, 0.35));
+        }
+        50% {
+          background-position: 100% 50%;
+          filter: drop-shadow(0 5px 0 rgba(58, 79, 108, 0.22)) drop-shadow(0 0 32px rgba(94, 200, 255, 0.45));
+        }
+      }
+
+      @keyframes startBrandFloat {
+        0%,
+        100% {
+          transform: translateY(0) rotate(-0.75deg);
+        }
+        50% {
+          transform: translateY(-11px) rotate(0.75deg);
+        }
+      }
+
+      @keyframes startFadeUp {
+        from {
+          opacity: 0;
+          transform: translateY(22px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @keyframes startBtnGlow {
+        0%,
+        100% {
+          filter: brightness(1);
+          box-shadow: 0 5px 0 #2d4a6e, 0 8px 20px rgba(245, 134, 31, 0.35);
+        }
+        50% {
+          filter: brightness(1.07);
+          box-shadow: 0 5px 0 #2d4a6e, 0 12px 32px rgba(245, 134, 31, 0.48);
+        }
+      }
+
+      @keyframes startBgPulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.92;
+        }
+      }
+
+      /* Menu ball pit — constant-speed slide along one diagonal (alternate = smooth return, no zig-zag) */
+      @keyframes menuBallDiagDrift {
+        0% {
+          transform: translate(-50%, -50%) translate(calc(-1 * var(--diag-x)), calc(-1 * var(--diag-y))) rotate(var(--rot));
+        }
+        100% {
+          transform: translate(-50%, -50%) translate(var(--diag-x), var(--diag-y)) rotate(var(--rot));
+        }
+      }
+
+      .start-balls-layer {
+        position: absolute;
+        inset: -12%;
+        z-index: 0;
+        pointer-events: none;
+        overflow: hidden;
+      }
+
+      .menu-silly-ball {
+        --diag-x: 3vmin;
+        --diag-y: 3vmin;
+        position: absolute;
+        left: 0;
+        top: 0;
+        border-radius: 50%;
+        pointer-events: none;
+        z-index: 0;
+        border: 3px solid rgba(45, 74, 110, 0.28);
+        box-shadow: inset -6px -6px 0 rgba(0, 0, 0, 0.07), 3px 4px 0 rgba(45, 74, 110, 0.14);
+        animation: menuBallDiagDrift 5.4s linear infinite alternate;
+        animation-delay: calc(var(--wave) * 0.09s);
+        will-change: transform;
+      }
+
+      .menu-silly-ball--sprite {
+        background: none;
+        border: none;
+        box-shadow: none;
+        overflow: visible;
+        mix-blend-mode: multiply;
+      }
+
+      .menu-silly-ball--sprite img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        object-position: center;
+        display: block;
+        pointer-events: none;
+        user-select: none;
+        -webkit-user-drag: none;
+        filter: drop-shadow(0 1px 2px rgba(45, 74, 110, 0.1));
+      }
+
+      .menu-silly-ball.menu-silly-ball--rev {
+        animation-duration: 6.6s;
+        animation-direction: alternate-reverse;
+        animation-delay: calc(var(--wave) * 0.09s + 0.5s);
+      }
+
+      .menu-silly-ball.menu-silly-ball--wobble {
+        animation-duration: 4.5s;
+        animation-delay: calc(var(--wave) * 0.09s + 0.22s);
+      }
+
       #startScreen {
         position: fixed;
         inset: 0;
@@ -84,6 +284,7 @@
         align-items: center;
         justify-content: center;
         padding: 24px;
+        overflow: hidden;
         background: linear-gradient(
             180deg,
             rgba(191, 233, 255, 0.97) 0%,
@@ -93,37 +294,124 @@
           radial-gradient(ellipse 90% 55% at 85% 8%, rgba(255, 229, 102, 0.45), transparent 55%);
         backdrop-filter: blur(8px);
         pointer-events: auto;
+        animation: startBgPulse 5s ease-in-out infinite;
       }
 
-      #startScreen h1 {
-        font-size: clamp(2.2rem, 8vw, 3.2rem);
-        font-weight: 700;
-        letter-spacing: 0.02em;
+      #startScreen::before,
+      #startScreen::after {
+        content: "";
+        position: absolute;
+        border-radius: 50%;
+        pointer-events: none;
+        z-index: 0;
+        filter: blur(0.5px);
+      }
+
+      #startScreen::before {
+        width: min(42vw, 200px);
+        height: min(42vw, 200px);
+        left: -5%;
+        top: 14%;
+        background: radial-gradient(circle at 35% 35%, rgba(255, 255, 255, 0.5), rgba(255, 200, 220, 0.22) 55%, transparent 70%);
+        animation: startBlobDriftA 11s ease-in-out infinite;
+      }
+
+      #startScreen::after {
+        width: min(48vw, 220px);
+        height: min(48vw, 220px);
+        right: -8%;
+        bottom: 18%;
+        background: radial-gradient(circle at 40% 40%, rgba(255, 255, 255, 0.38), rgba(180, 230, 255, 0.26) 50%, transparent 68%);
+        animation: startBlobDriftB 13s ease-in-out -2s infinite;
+      }
+
+      .start-inner {
+        position: relative;
+        z-index: 2;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        max-width: 360px;
+        width: 100%;
+        background: transparent;
+        border-radius: 0;
+        padding: 20px 16px 28px;
+        box-shadow: none;
+      }
+
+      .start-brand {
+        animation: startBrandFloat 3.2s ease-in-out 0.8s infinite;
         margin-bottom: 6px;
-        color: var(--ink);
-        text-shadow: 3px 3px 0 var(--sun), -1px -1px 0 rgba(255, 255, 255, 0.9), 0 0 0 3px var(--cream),
-          0 6px 0 rgba(58, 79, 108, 0.12);
       }
 
-      #startScreen p {
-        color: var(--muted);
-        font-size: 0.95rem;
-        max-width: 320px;
+      .start-brand h1 {
+        font-family: "Bungee", "Fredoka", system-ui, sans-serif;
+        font-size: clamp(2.35rem, 9.5vw, 3.55rem);
+        font-weight: 400;
+        line-height: 1.05;
+        letter-spacing: 0.04em;
         text-align: center;
-        line-height: 1.45;
-        margin-bottom: 16px;
+        max-width: 18ch;
+        margin: 0 auto;
+        background: linear-gradient(
+          110deg,
+          #2a5080 0%,
+          #3a4f6c 18%,
+          var(--orange-deep) 38%,
+          #ff9f43 52%,
+          #4ec8ff 68%,
+          #3a4f6c 85%,
+          #2a5080 100%
+        );
+        background-size: 240% 100%;
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        -webkit-text-fill-color: transparent;
+        opacity: 0;
+        animation:
+          startTitlePop 0.78s cubic-bezier(0.34, 1.35, 0.64, 1) forwards,
+          startTitleGradientFlow 5.2s ease-in-out infinite 0.85s;
       }
 
-      .start-hint {
-        font-size: 0.8rem !important;
-        margin-bottom: 22px !important;
+      #noAssetWarning:not(.hidden) {
+        animation: startFadeUp 0.45s ease-out forwards;
       }
 
-      .start-hint a {
-        color: var(--orange-deep);
-        font-weight: 600;
-        text-decoration: none;
-        border-bottom: 2px dashed rgba(245, 134, 31, 0.55);
+      #btnStart {
+        opacity: 0;
+        animation: startFadeUp 0.52s ease-out 0.42s forwards, startBtnGlow 2.5s ease-in-out 1.15s infinite;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        #startScreen,
+        #startScreen::before,
+        #startScreen::after,
+        .start-brand,
+        .start-brand h1,
+        #btnStart,
+        #noAssetWarning:not(.hidden) {
+          animation: none !important;
+        }
+
+        .menu-silly-ball {
+          animation: none !important;
+        }
+
+        #startScreen .start-brand h1,
+        #btnStart {
+          opacity: 1 !important;
+          transform: none !important;
+          animation: none !important;
+          color: var(--ink) !important;
+          -webkit-text-fill-color: var(--ink) !important;
+          background: none !important;
+          filter: none !important;
+        }
+
+        #gameplayShell {
+          transition: none !important;
+        }
       }
 
       .btn-primary {
@@ -147,7 +435,7 @@
 
       /* HUD — hidden until play; pointer-events none on shell */
       #hud {
-        position: fixed;
+        position: absolute;
         inset: 0;
         z-index: 10;
         pointer-events: none;
@@ -158,12 +446,104 @@
         left: 0;
         right: 0;
         top: 0;
-        padding: 16px 20px;
-        padding-top: max(16px, var(--settings-top));
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 12px;
+        padding: var(--settings-top) var(--hud-pad-x-end) clamp(0.75rem, 2vmin, 1rem) var(--hud-pad-x);
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        align-items: center;
+        gap: clamp(0.5rem, 2.2vw, 0.875rem);
+      }
+
+      @media (pointer: coarse) {
+        #hudTop {
+          padding: var(--settings-top) var(--hud-pad-x-end) 0.25rem var(--hud-pad-x);
+          gap: clamp(0.35rem, 1.8vw, 0.65rem);
+          align-items: flex-start;
+        }
+
+        #hudTop .hud-card {
+          padding: 5px 10px;
+          border-radius: 14px;
+          border-width: 2px;
+        }
+
+        #hudTop .hud-top-cell--left .hud-card {
+          padding: clamp(0.2rem, 1vmin, 0.35rem) clamp(0.35rem, 1.6vw, 0.5rem);
+          max-width: min(78px, 30vw);
+          border-radius: 12px;
+        }
+
+        #hudTop .hud-label {
+          font-size: 0.55rem;
+          margin-bottom: 1px;
+          letter-spacing: 0.06em;
+        }
+
+        #hudTop .hud-top-cell--left .hud-label {
+          font-size: 0.48rem;
+          margin-bottom: 0;
+          letter-spacing: 0.05em;
+        }
+
+        #hudTop .hud-value {
+          font-size: 1.2rem;
+          line-height: 1.1;
+        }
+
+        #hudTop .hud-top-cell--left .hud-value {
+          font-size: 0.98rem;
+          line-height: 1;
+        }
+
+        #nextBubble {
+          min-width: 72px;
+        }
+
+        #nextOrb {
+          width: 38px;
+          height: 38px;
+          margin-top: 2px;
+          border: none;
+          box-shadow: 0 4px 14px rgba(45, 74, 110, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.65);
+        }
+      }
+
+      .hud-top-cell--left {
+        justify-self: start;
+        justify-items: start;
+        width: 100%;
+        min-width: 0;
+      }
+
+      .hud-top-cell--left .hud-card {
+        text-align: left;
+        margin-inline: 0;
+        margin-right: auto;
+        max-width: min(104px, 28vw);
+        padding: clamp(0.35rem, 1.2vmin, 0.5rem) clamp(0.5rem, 1.8vw, 0.65rem);
+      }
+
+      #hudTop .hud-top-cell--left .hud-label {
+        font-size: clamp(0.52rem, 1.65vw, 0.58rem);
+        margin-bottom: 2px;
+        letter-spacing: 0.07em;
+      }
+
+      #hudTop .hud-top-cell--left .hud-value {
+        font-size: clamp(1rem, 3.2vw, 1.12rem);
+        line-height: 1.05;
+      }
+
+      .hud-top-cell--center {
+        justify-self: center;
+        grid-column: 2;
+      }
+
+      .hud-top-cell--right {
+        justify-self: end;
+        grid-column: 3;
+        width: 0;
+        min-width: 0;
+        pointer-events: none;
       }
 
       .hud-card {
@@ -196,6 +576,294 @@
         flex-direction: column;
         align-items: center;
         min-width: 88px;
+        text-align: center;
+      }
+
+      .hud-evolution {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        pointer-events: none;
+        padding: 6px 10px 22px;
+        padding-bottom: max(22px, env(safe-area-inset-bottom, 0px) + 14px);
+        background: linear-gradient(
+          to top,
+          rgba(255, 253, 247, 0.97) 0%,
+          rgba(255, 253, 247, 0.78) 38%,
+          rgba(255, 253, 247, 0.42) 72%,
+          rgba(255, 253, 247, 0) 100%
+        );
+      }
+
+      @media (pointer: coarse) {
+        .hud-evolution {
+          bottom: 16px;
+          left: 6px;
+          right: 6px;
+          padding: 2px 2px max(6px, env(safe-area-inset-bottom, 0px) + 8px);
+          background: linear-gradient(
+            to top,
+            rgba(255, 253, 247, 0.96) 0%,
+            rgba(255, 253, 247, 0.62) 40%,
+            rgba(255, 253, 247, 0.28) 78%,
+            rgba(255, 253, 247, 0) 100%
+          );
+        }
+
+        .hud-evolution-title {
+          font-size: 0.5rem;
+          margin-bottom: 3px;
+          letter-spacing: 0.1em;
+          color: var(--ink);
+          text-shadow: 0 1px 0 rgba(255, 255, 255, 0.95), 0 0 12px rgba(255, 253, 247, 0.9);
+        }
+
+        .hud-evolution-scroll {
+          padding: 7px 16px;
+          margin: 0 auto;
+          max-width: calc(100% - 4px);
+          background: rgba(255, 253, 247, 0.88);
+          border: 1px solid rgba(58, 79, 108, 0.22);
+          border-radius: 999px;
+          box-shadow: 0 4px 0 rgba(45, 74, 110, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+          overflow-x: auto;
+          overflow-y: hidden;
+          -webkit-overflow-scrolling: touch;
+          overscroll-behavior-x: contain;
+          box-sizing: border-box;
+          clip-path: inset(0 round 999px);
+          -webkit-clip-path: inset(0 round 999px);
+        }
+
+        .hud-evolution-arrow {
+          margin: 0 2px;
+          border-top-width: 3px;
+          border-bottom-width: 3px;
+          border-left-width: 5px;
+          border-left-color: rgba(58, 79, 108, 0.55);
+        }
+
+        .hud-evolution-node {
+          border-width: 1px;
+          box-shadow: 0 2px 0 rgba(45, 74, 110, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.85),
+            0 0 0 1px rgba(255, 255, 255, 0.45);
+          animation: hud-evo-node-bob-mobile 2.5s ease-in-out infinite;
+        }
+
+        #evolutionChain.hud-evolution-scroll--merge-pulse .hud-evolution-node {
+          animation:
+            hud-evo-node-bob-mobile 2.5s ease-in-out infinite,
+            hud-evo-merge-glow 0.62s ease-out 1;
+          animation-delay: var(--evo-delay, 0s), 0s;
+        }
+      }
+
+      @keyframes hud-evo-node-bob-mobile {
+        0%,
+        100% {
+          transform: translateY(0) scale(1);
+        }
+        50% {
+          transform: translateY(-2px) scale(1.02);
+        }
+      }
+
+      @media (pointer: fine) {
+        .hud-evolution {
+          padding-bottom: max(28px, env(safe-area-inset-bottom, 0px) + 20px);
+        }
+      }
+
+      @keyframes hud-evo-node-bob {
+        0%,
+        100% {
+          transform: translateY(0) scale(1);
+        }
+        50% {
+          transform: translateY(-5px) scale(1.05);
+        }
+      }
+
+      @keyframes hud-evo-arrow-shine {
+        0%,
+        100% {
+          opacity: 0.45;
+          filter: brightness(0.95);
+        }
+        50% {
+          opacity: 1;
+          filter: brightness(1.15);
+        }
+      }
+
+      @keyframes hud-evo-title-twinkle {
+        0%,
+        100% {
+          opacity: 0.82;
+          letter-spacing: 0.11em;
+        }
+        50% {
+          opacity: 1;
+          letter-spacing: 0.14em;
+        }
+      }
+
+      @keyframes hud-evo-merge-glow {
+        0% {
+          filter: brightness(1) drop-shadow(0 0 0 transparent);
+        }
+        35% {
+          filter: brightness(1.22) drop-shadow(0 0 10px rgba(255, 186, 90, 0.55));
+        }
+        100% {
+          filter: brightness(1) drop-shadow(0 0 0 transparent);
+        }
+      }
+
+      .hud-evolution-title {
+        display: block;
+        text-align: center;
+        font-size: 0.52rem;
+        font-weight: 700;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+        color: var(--ink-soft);
+        margin-bottom: 5px;
+        animation: hud-evo-title-twinkle 3.2s ease-in-out infinite;
+      }
+
+      .hud-evolution-scroll {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        justify-content: center;
+        flex-wrap: nowrap;
+        gap: 0;
+        overflow-x: auto;
+        overflow-y: hidden;
+        max-width: 100%;
+        padding: 2px 0;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        pointer-events: auto;
+      }
+
+      .hud-evolution-scroll::-webkit-scrollbar {
+        display: none;
+      }
+
+      .hud-evolution-arrow {
+        flex-shrink: 0;
+        width: 0;
+        height: 0;
+        margin: 0 3px;
+        border-top: 4px solid transparent;
+        border-bottom: 4px solid transparent;
+        border-left: 6px solid rgba(58, 79, 108, 0.42);
+        animation: hud-evo-arrow-shine 2.6s ease-in-out infinite;
+        animation-delay: var(--evo-arrow-delay, 0s);
+      }
+
+      .hud-evolution-node {
+        flex-shrink: 0;
+        border-radius: 50%;
+        border: 1px solid var(--panel-border);
+        background: var(--cream);
+        box-shadow: 0 1px 0 rgba(45, 74, 110, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.75);
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        animation: hud-evo-node-bob 2.5s ease-in-out infinite;
+        animation-delay: var(--evo-delay, 0s);
+      }
+
+      #evolutionChain.hud-evolution-scroll--merge-pulse .hud-evolution-node {
+        animation:
+          hud-evo-node-bob 2.5s ease-in-out infinite,
+          hud-evo-merge-glow 0.62s ease-out 1;
+        animation-delay: var(--evo-delay, 0s), 0s;
+      }
+
+      @keyframes gameplayHudPopIn {
+        from {
+          opacity: 0;
+          transform: scale(0.78);
+        }
+        to {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+
+      #hud.hud--intro-pop #hudTop {
+        animation: gameplayHudPopIn 0.52s cubic-bezier(0.28, 1.28, 0.32, 1) both;
+        transform-origin: top center;
+      }
+
+      #hud.hud--intro-pop .hud-evolution {
+        animation: gameplayHudPopIn 0.55s cubic-bezier(0.28, 1.28, 0.32, 1) 0.1s both;
+        transform-origin: bottom center;
+      }
+
+      #settingsBtn.hud--intro-pop {
+        animation: gameplayHudPopIn 0.46s cubic-bezier(0.28, 1.28, 0.32, 1) 0.05s both;
+        transform-origin: top right;
+      }
+
+      .hud-evolution-node img {
+        width: 78%;
+        height: 78%;
+        object-fit: contain;
+        display: block;
+        pointer-events: none;
+        user-select: none;
+        -webkit-user-drag: none;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .hud-evolution-title,
+        .hud-evolution-arrow,
+        .hud-evolution-node {
+          animation: none !important;
+        }
+
+        #evolutionChain.hud-evolution-scroll--merge-pulse .hud-evolution-node {
+          animation: none !important;
+        }
+
+        #hud.hud--intro-pop #hudTop,
+        #hud.hud--intro-pop .hud-evolution,
+        #settingsBtn.hud--intro-pop {
+          animation: none !important;
+          opacity: 1;
+          transform: none;
+        }
+
+        #nextOrb.next-orb--enter {
+          animation: none !important;
+          transform: none;
+          opacity: 1;
+        }
+
+        #settingsModal.settings-modal-root .settings-panel,
+        #settingsModal.settings-modal-root {
+          transition: none !important;
+        }
+
+        #settingsModal.settings-modal-root--closed .settings-panel,
+        #settingsModal.settings-modal-root--open .settings-panel {
+          transform: none;
+        }
+
+        #settingsModal.settings-modal-root--open .settings-panel {
+          opacity: 1;
+        }
+
+        #settingsModal.settings-modal-root--closed .settings-panel {
+          opacity: 0;
+        }
       }
 
       #nextOrb {
@@ -204,15 +872,36 @@
         border-radius: 50%;
         margin-top: 6px;
         background: radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.85), transparent 42%), var(--cream);
-        border: 3px solid var(--panel-border);
-        box-shadow: 0 3px 0 rgba(45, 74, 110, 0.15), inset 0 -2px 8px rgba(200, 230, 255, 0.5);
+        border: none;
+        box-shadow: 0 5px 16px rgba(45, 74, 110, 0.12), inset 0 -2px 10px rgba(200, 230, 255, 0.45),
+          inset 0 1px 0 rgba(255, 255, 255, 0.75);
+        transform-origin: center center;
       }
 
-      /* Settings button — interactive */
+      @keyframes nextOrbSwapIn {
+        0% {
+          opacity: 0.35;
+          transform: scale(0.3) rotate(-14deg);
+        }
+        55% {
+          opacity: 1;
+          transform: scale(1.1) rotate(4deg);
+        }
+        100% {
+          opacity: 1;
+          transform: scale(1) rotate(0deg);
+        }
+      }
+
+      #nextOrb.next-orb--enter {
+        animation: nextOrbSwapIn 0.48s cubic-bezier(0.28, 1.25, 0.32, 1) both;
+      }
+
+      /* Settings button — interactive (desktop: below top bar; mobile: flush with HUD row) */
       #settingsBtn {
-        position: fixed;
+        position: absolute;
         top: var(--settings-top);
-        right: 16px;
+        right: var(--hud-pad-x-end);
         z-index: 30;
         width: 48px;
         height: 48px;
@@ -233,12 +922,29 @@
         height: 24px;
       }
 
+      @media (pointer: coarse) {
+        #settingsBtn {
+          top: var(--settings-top);
+          right: var(--hud-pad-x-end);
+          width: 40px;
+          height: 40px;
+          border-radius: 12px;
+          border-width: 2px;
+          box-shadow: 0 3px 0 rgba(45, 74, 110, 0.16);
+        }
+
+        #settingsBtn svg {
+          width: 22px;
+          height: 22px;
+        }
+      }
+
       #settingsBtn:active {
         transform: scale(0.96);
       }
 
-      /* Settings modal */
-      #settingsModal {
+      /* Settings modal — open/close with scale (avoid .hidden so transitions run) */
+      #settingsModal.settings-modal-root {
         position: fixed;
         inset: 0;
         z-index: 40;
@@ -246,9 +952,24 @@
         align-items: center;
         justify-content: center;
         padding: 24px;
-        background: rgba(58, 79, 108, 0.35);
-        backdrop-filter: blur(6px);
+        backdrop-filter: blur(0);
+        transition:
+          opacity 0.24s ease,
+          backdrop-filter 0.32s ease,
+          background-color 0.24s ease;
+      }
+
+      #settingsModal.settings-modal-root--closed {
+        opacity: 0;
+        pointer-events: none;
+        background-color: rgba(58, 79, 108, 0);
+      }
+
+      #settingsModal.settings-modal-root--open {
+        opacity: 1;
         pointer-events: auto;
+        background-color: rgba(58, 79, 108, 0.35);
+        backdrop-filter: blur(6px);
       }
 
       .settings-panel {
@@ -258,6 +979,17 @@
         border-radius: 22px;
         padding: 22px;
         box-shadow: 0 8px 0 rgba(45, 74, 110, 0.2), 0 20px 50px rgba(58, 79, 108, 0.2);
+        transform-origin: center center;
+        transform: scale(0.9);
+        opacity: 0;
+        transition:
+          transform 0.34s cubic-bezier(0.28, 1.22, 0.36, 1),
+          opacity 0.26s ease;
+      }
+
+      #settingsModal.settings-modal-root--open .settings-panel {
+        transform: scale(1);
+        opacity: 1;
       }
 
       .settings-panel h2 {
@@ -348,13 +1080,13 @@
       #gameOver {
         position: fixed;
         inset: 0;
-        z-index: 25;
+        z-index: 30;
         display: flex;
         align-items: center;
         justify-content: center;
         padding: 24px;
-        background: rgba(255, 253, 247, 0.92);
-        backdrop-filter: blur(10px);
+        background: rgba(6, 8, 18, 0.88);
+        backdrop-filter: blur(12px);
         pointer-events: auto;
       }
 
@@ -366,6 +1098,16 @@
         border: 4px solid var(--panel-border);
         border-radius: 24px;
         box-shadow: 0 8px 0 rgba(45, 74, 110, 0.12);
+        opacity: 0;
+        transform: scale(0.84);
+        transition:
+          opacity 0.4s ease,
+          transform 0.52s cubic-bezier(0.28, 1.35, 0.32, 1);
+      }
+
+      #gameOver.game-over--reveal .go-inner {
+        opacity: 1;
+        transform: scale(1);
       }
 
       #gameOver h2 {
@@ -382,47 +1124,57 @@
         font-weight: 700;
       }
 
-      #btnDrop {
-        position: fixed;
-        bottom: max(28px, env(safe-area-inset-bottom, 28px));
-        left: 50%;
-        transform: translateX(-50%);
-        z-index: 12;
-        min-width: 140px;
-        min-height: 52px;
-        padding: 14px 28px;
-        border: 3px solid var(--panel-border);
-        border-radius: 999px;
-        font-family: inherit;
-        font-size: 1rem;
-        font-weight: 700;
-        color: var(--cream);
-        background: linear-gradient(180deg, var(--orange), var(--orange-deep));
-        box-shadow: 0 5px 0 #2d4a6e, 0 8px 20px rgba(245, 134, 31, 0.3);
-        cursor: pointer;
-        pointer-events: auto;
-      }
-
-      @media (pointer: fine) {
-        #btnDrop {
-          display: none;
-        }
-      }
     </style>
   </head>
   <body>
-    <canvas id="gameCanvas" aria-label="Game"></canvas>
-
     <div id="startScreen">
-      <h1>Suika</h1>
-      <p>Cute sports balls, big merges, and a squishy stack—do not let the pile cross the line.</p>
-      <p class="start-hint">
-        <a href="?bounds=1">Tune collision bounds</a> for each ball asset
-      </p>
-      <p id="noAssetWarning" class="hidden">
-        Add ball images (.png / .webp) to the suika/assets folder, then run the build again.
-      </p>
-      <button type="button" class="btn-primary" id="btnStart">Play</button>
+      <div class="start-balls-layer" aria-hidden="true"></div>
+      <div class="start-inner">
+        <div class="start-brand">
+          <h1>Ball Merge</h1>
+        </div>
+        <p id="noAssetWarning" class="hidden">
+          Add ball images (.png / .webp) to the suika/assets/balls folder, then run the build again.
+        </p>
+        <button type="button" class="btn-primary" id="btnStart">Play</button>
+      </div>
+    </div>
+
+    <div id="gameplayShell">
+      <div id="mergeJuiceRoot">
+      <canvas id="gameCanvas" aria-label="Game"></canvas>
+
+      <div id="hud" class="hidden">
+        <div id="hudTop">
+          <div class="hud-top-cell hud-top-cell--left">
+            <div class="hud-card">
+              <div class="hud-label">Score</div>
+              <div class="hud-value" id="scoreValue">0</div>
+            </div>
+          </div>
+          <div class="hud-top-cell hud-top-cell--center">
+            <div class="hud-card" id="nextBubble">
+              <div class="hud-label">Next</div>
+              <div id="nextOrb" aria-hidden="true"></div>
+            </div>
+          </div>
+          <div class="hud-top-cell hud-top-cell--right" aria-hidden="true"></div>
+        </div>
+        <div class="hud-evolution" id="hudEvolution" aria-hidden="true">
+          <span class="hud-evolution-title">Merge chain</span>
+          <div class="hud-evolution-scroll" id="evolutionChain"></div>
+        </div>
+      </div>
+
+      <button type="button" id="settingsBtn" class="hidden" aria-label="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
+          <path
+            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1Z"
+          />
+        </svg>
+      </button>
+      </div>
     </div>
 
     <div id="gameOver" class="hidden">
@@ -433,31 +1185,11 @@
       </div>
     </div>
 
-    <div id="hud" class="hidden">
-      <div id="hudTop">
-        <div class="hud-card">
-          <div class="hud-label">Score</div>
-          <div class="hud-value" id="scoreValue">0</div>
-        </div>
-        <div class="hud-card" id="nextBubble">
-          <div class="hud-label">Next</div>
-          <div id="nextOrb" aria-hidden="true"></div>
-        </div>
-      </div>
-    </div>
-
-    <button type="button" id="btnDrop" class="hidden" aria-label="Drop ball">Drop</button>
-
-    <button type="button" id="settingsBtn" class="hidden" aria-label="Settings">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-        <circle cx="12" cy="12" r="3" />
-        <path
-          d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"
-        />
-      </svg>
-    </button>
-
-    <div id="settingsModal" class="hidden">
+    <div
+      id="settingsModal"
+      class="settings-modal-root settings-modal-root--closed"
+      aria-hidden="true"
+    >
       <div class="settings-panel" role="dialog" aria-labelledby="settingsTitle">
         <h2 id="settingsTitle">Settings</h2>
         <div class="settings-row">
