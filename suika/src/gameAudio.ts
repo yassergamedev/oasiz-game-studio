@@ -66,6 +66,8 @@ export interface SuikaAudioController {
   setGameplayActive(active: boolean): void;
   enterGameOverMusic(): void;
   exitGameOverMusic(): void;
+  /** After app background: resume Web Audio + HTMLAudioElement so BGM/SFX work again. */
+  resumeAfterBackground(): void;
 }
 
 export function createSuikaAudio(): SuikaAudioController {
@@ -198,6 +200,13 @@ export function createSuikaAudio(): SuikaAudioController {
       applyBgmWarp(false);
       syncBgm();
       console.log("[exitGameOverMusic]", "normal bgm");
+    },
+    resumeAfterBackground(): void {
+      if (ac && ac.state === "suspended") {
+        void ac.resume().catch(() => {});
+      }
+      syncBgm();
+      console.log("[resumeAfterBackground]", "audio sync");
     },
   };
 }

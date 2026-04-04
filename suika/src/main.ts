@@ -179,6 +179,9 @@ function bootstrapGame(): void {
     (() => {
       throw new Error("2D context unavailable");
     })();
+  /** WebViews often skip pointerup or never grant capture; track the active pointer explicitly. */
+  let canvasPointerActive = false;
+  let canvasPointerId: number | null = null;
   const startScreen = document.getElementById("startScreen")!;
   const gameplayShell = document.getElementById("gameplayShell")!;
   const mergeJuiceRoot = document.getElementById("mergeJuiceRoot");
@@ -220,6 +223,8 @@ function bootstrapGame(): void {
   const mergeFanfare = new MergeFanfare();
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   let frameClockMs = performance.now();
+  /** requestAnimationFrame id — cancel + reschedule on visibility so the loop survives app resume. */
+  let renderRafId = 0;
   /** When > 0, cup net scales up from this time (gameplay intro). */
   let netIntroStartedAtMs = 0;
   let hudIntroClearTimer = 0;
@@ -394,7 +399,21 @@ function bootstrapGame(): void {
         }
       }
     }
-    requestAnimationFrame(drawFrame);
+    renderRafId = requestAnimationFrame(drawFrame);
+  }
+  function kickRenderLoop(): void {
+    cancelAnimationFrame(renderRafId);
+    renderRafId = requestAnimationFrame(drawFrame);
+  }
+  function onAppForeground(): void {
+    console.log("[bootstrapGame]", "foreground: reset clock, pointer, rAF");
+    frameClockMs = performance.now();
+    canvasPointerActive = false;
+    canvasPointerId = null;
+    game?.pointerLeave();
+    resizeCanvas();
+    audio.resumeAfterBackground();
+    kickRenderLoop();
   }
   function openSettings(): void {
     syncSettingsUi();
@@ -573,6 +592,8 @@ function bootstrapGame(): void {
     gameplayShell.classList.remove("gameplay-shell--in");
   }
   async function onStart(): Promise<void> {
+    canvasPointerActive = false;
+    canvasPointerId = null;
     window.clearTimeout(hudIntroClearTimer);
     hudIntroClearTimer = 0;
     hud.classList.remove("hud--intro-pop");
@@ -657,6 +678,11 @@ function bootstrapGame(): void {
     game.resetRound(layout);
     rebuildEvolutionHud(game);
     playing = true;
+    try {
+      canvas.focus({ preventScroll: true });
+    } catch {
+      /* ignore */
+    }
     scoreValue.textContent = "0";
     gameOverPhase = "none";
     gameOverPanelRevealPending = false;
@@ -716,37 +742,69 @@ function bootstrapGame(): void {
   bindToggle(toggleMusic, "music");
   bindToggle(toggleFx, "fx");
   bindToggle(toggleHaptics, "haptics");
+  function releaseCanvasPointerCapture(pointerId: number): void {
+    try {
+      if (canvas.hasPointerCapture(pointerId)) {
+        canvas.releasePointerCapture(pointerId);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  function endCanvasPointerSession(e: PointerEvent, shouldDrop: boolean): void {
+    if (!canvasPointerActive || canvasPointerId !== e.pointerId) {
+      return;
+    }
+    canvasPointerActive = false;
+    canvasPointerId = null;
+    releaseCanvasPointerCapture(e.pointerId);
+    if (!playing || !game) {
+      return;
+    }
+    game.pointerLeave();
+    if (shouldDrop && game.canDrop()) {
+      game.tryDrop();
+      triggerHaptic("medium", settings);
+    }
+  }
   canvas.addEventListener("pointerdown", (e) => {
-    if (!playing || !game || game.isGameOver()) return;
-    canvas.setPointerCapture(e.pointerId);
+    if (!playing || !game || game.isGameOver()) {
+      return;
+    }
+    if (e.button !== 0 && e.pointerType === "mouse") {
+      return;
+    }
+    canvasPointerActive = true;
+    canvasPointerId = e.pointerId;
+    try {
+      canvas.setPointerCapture(e.pointerId);
+    } catch {
+      console.log("[bootstrapGame]", "setPointerCapture skipped");
+    }
     triggerHaptic("light", settings);
     game.handlePointer(e.clientX, e.clientY, canvas);
   });
   canvas.addEventListener("pointermove", (e) => {
-    if (!playing || !game) return;
-    if (!canvas.hasPointerCapture(e.pointerId)) return;
+    if (!playing || !game) {
+      return;
+    }
+    if (!canvasPointerActive || canvasPointerId !== e.pointerId) {
+      return;
+    }
     game.handlePointer(e.clientX, e.clientY, canvas);
   });
   canvas.addEventListener("pointerup", (e) => {
-    if (!playing || !game) return;
-    try {
-      if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
-    } catch {
-      /* ignore */
-    }
-    game.pointerLeave();
-    if (game.canDrop()) {
-      game.tryDrop();
-      triggerHaptic("medium", settings);
-    }
+    endCanvasPointerSession(e, true);
   });
+  /**
+   * Mobile WebViews frequently send pointercancel (scroll heuristic, multitouch, focus)
+   * without pointerup; still commit the drop so a tap does not feel like a long-press.
+   */
   canvas.addEventListener("pointercancel", (e) => {
-    game?.pointerLeave();
-    try {
-      if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
-    } catch {
-      /* ignore */
-    }
+    endCanvasPointerSession(e, true);
+  });
+  canvas.addEventListener("lostpointercapture", (e) => {
+    endCanvasPointerSession(e, true);
   });
   window.addEventListener("keydown", (e) => {
     if (!playing || !game || game.isGameOver()) return;
@@ -769,9 +827,20 @@ function bootstrapGame(): void {
   window.addEventListener("resize", () => {
     resizeCanvas();
   });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      onAppForeground();
+    }
+  });
+  window.addEventListener("pageshow", (ev) => {
+    const e = ev as PageTransitionEvent;
+    if (e.persisted) {
+      onAppForeground();
+    }
+  });
   initStartMenuBallField();
   syncSettingsUi();
   resizeCanvas();
-  requestAnimationFrame(drawFrame);
+  renderRafId = requestAnimationFrame(drawFrame);
   console.log("[bootstrapGame]", "ready");
 }

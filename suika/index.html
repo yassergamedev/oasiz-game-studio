@@ -31,15 +31,21 @@
         --panel: rgba(255, 253, 247, 0.94);
         --stroke: rgba(58, 79, 108, 0.35);
         --panel-border: #3d5a80;
-        /* Relative HUD insets — scale with viewport + respect safe areas */
-        --hud-pad-x: max(env(safe-area-inset-left, 0px), clamp(0.625rem, 3.2vw, 1.375rem));
-        --hud-pad-x-end: max(env(safe-area-inset-right, 0px), clamp(0.625rem, 3.2vw, 1.375rem));
-        --settings-top: max(env(safe-area-inset-top, 0px), clamp(2.75rem, 6vmin, 3.5rem));
+        /* Score row + settings share this Y; never below safe-area; desktop floor 45px (AGENTS) */
+        --hud-pad-x: max(env(safe-area-inset-left, 0px), clamp(0.5rem, 2.4vw, 0.875rem));
+        --hud-pad-x-end: max(env(safe-area-inset-right, 0px), clamp(0.5rem, 2.4vw, 0.875rem));
+        --settings-top: max(env(safe-area-inset-top, 0px), clamp(45px, 5vmin, 52px));
       }
 
       @media (pointer: coarse) {
         :root {
-          --settings-top: max(env(safe-area-inset-top, 0px), clamp(5.25rem, 17vmin, 7.25rem));
+          /*
+           * Tighter than a flat 120px so the row sits higher; still caps at 120px when vmin is large.
+           * Raise the clamp minimum if the platform chrome covers controls.
+           */
+          --settings-top: max(env(safe-area-inset-top, 0px), clamp(76px, 11vmin, 120px));
+          --hud-pad-x: max(env(safe-area-inset-left, 0px), clamp(0.375rem, 2vw, 0.625rem));
+          --hud-pad-x-end: max(env(safe-area-inset-right, 0px), clamp(0.375rem, 2vw, 0.625rem));
         }
       }
 
@@ -104,6 +110,9 @@
         width: 100%;
         height: 100%;
         z-index: 1;
+        touch-action: none;
+        -webkit-user-select: none;
+        user-select: none;
       }
 
       .hidden {
@@ -445,8 +454,8 @@
         position: absolute;
         left: 0;
         right: 0;
-        top: 0;
-        padding: var(--settings-top) var(--hud-pad-x-end) clamp(0.75rem, 2vmin, 1rem) var(--hud-pad-x);
+        top: var(--settings-top);
+        padding: 0 var(--hud-pad-x-end) clamp(0.75rem, 2vmin, 1rem) var(--hud-pad-x);
         display: grid;
         grid-template-columns: 1fr auto 1fr;
         align-items: center;
@@ -455,7 +464,7 @@
 
       @media (pointer: coarse) {
         #hudTop {
-          padding: var(--settings-top) var(--hud-pad-x-end) 0.25rem var(--hud-pad-x);
+          padding: 0 var(--hud-pad-x-end) 0.25rem var(--hud-pad-x);
           gap: clamp(0.35rem, 1.8vw, 0.65rem);
           align-items: flex-start;
         }
@@ -1142,7 +1151,7 @@
 
     <div id="gameplayShell">
       <div id="mergeJuiceRoot">
-      <canvas id="gameCanvas" aria-label="Game"></canvas>
+      <canvas id="gameCanvas" aria-label="Game" tabindex="0"></canvas>
 
       <div id="hud" class="hidden">
         <div id="hudTop">

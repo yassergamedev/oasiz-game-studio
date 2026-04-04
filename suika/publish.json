@@ -1,5 +1,6 @@
 {
   "title": "Suika",
-  "description": "Merge physics puzzle—drop matching tiers, evolve toward the biggest orb, and keep the cup from overflowing.",
-  "category": "puzzle"
+  "description": "Merge physics puzzle: drop matching tiers, evolve toward the biggest orb, and keep the cup from overflowing.",
+  "category": "puzzle",
+  "verticalOnly": true
 }

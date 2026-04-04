@@ -1,6 +1,7 @@
 import Matter from "matter-js";
 import { getBallAssets, type BallAsset } from "./ballAssets";
 import {
+  DEFAULT_CIRCLE,
   getBoundsForId,
   isCircleConfig,
   isPolygonConfig,
@@ -117,7 +118,11 @@ export class SuikaGame {
       enableSleeping: true,
     });
     this.runner = Matter.Runner.create();
-    Matter.Runner.run(this.runner, this.engine);
+    /**
+     * Do not use Matter.Runner.run — it uses its own rAF and doubles up with stepPhysics()
+     * in the canvas loop. After app background/resume, two timers desync and the game can freeze.
+     * Physics is stepped only from SuikaGame.stepPhysics() (see main drawFrame).
+     */
 
     this.pendingDrop = true;
     this.currentTier = 0;
@@ -382,12 +387,40 @@ export class SuikaGame {
     } else if (isPolygonConfig(bounds) && isValidPolygonCollider(bounds)) {
       const local = polygonToPixelOffsetsFromCenter(bounds.vertices, nw, nh, displayScale);
       const worldVerts = local.map((v) => ({ x: spriteX + v.x, y: spriteY + v.y }));
-      body = Matter.Bodies.fromVertices(spriteX, spriteY, [worldVerts], common, false);
-      spriteOffsetX = spriteX - body.position.x;
-      spriteOffsetY = spriteY - body.position.y;
+      /**
+       * Without poly-decomp, Matter replaces concave shapes with a convex hull that often
+       * mismatches the sprite. Embedded WebViews also occasionally throw from fromVertices.
+       */
+      const drFallback = displayRadius;
+      const radFallback = Math.max(4, DEFAULT_CIRCLE.radiusScale * drFallback);
+      body = Matter.Bodies.circle(spriteX, spriteY, radFallback, common);
+      spriteOffsetX = 0;
+      spriteOffsetY = 0;
+      const convexOk = Matter.Vertices.isConvex(worldVerts);
+      if (convexOk) {
+        try {
+          const polyBody = Matter.Bodies.fromVertices(
+            spriteX,
+            spriteY,
+            [worldVerts],
+            common,
+            false,
+            0.01,
+            0,
+          );
+          if (polyBody.area >= 8 && Number.isFinite(polyBody.position.x) && Number.isFinite(polyBody.position.y)) {
+            body = polyBody;
+            spriteOffsetX = spriteX - body.position.x;
+            spriteOffsetY = spriteY - body.position.y;
+          }
+        } catch (err) {
+          console.log("[createBallBody]", "fromVertices failed, using circle", err);
+        }
+      }
     } else {
       const dr = displayRadius;
-      body = Matter.Bodies.circle(spriteX, spriteY, dr * 0.45, common);
+      const rad = Math.max(4, DEFAULT_CIRCLE.radiusScale * dr);
+      body = Matter.Bodies.circle(spriteX, spriteY, rad, common);
       spriteOffsetX = 0;
       spriteOffsetY = 0;
     }
@@ -694,7 +727,10 @@ export class SuikaGame {
 
   stepPhysics(): void {
     if (this.gameOver) return;
-    Matter.Engine.update(this.engine, 1000 / 60);
+    const dt = 1000 / 60;
+    /* Match prior feel: Runner + this hook used to advance ~2x per display frame. */
+    Matter.Engine.update(this.engine, dt);
+    Matter.Engine.update(this.engine, dt);
   }
 }
 
