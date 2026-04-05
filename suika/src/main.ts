@@ -22,6 +22,23 @@ interface Layout {
   cupH: number;
   dangerY: number;
 }
+
+/**
+ * Y coordinate of the cup top must be at least this value so the rim / net stay below the HTML HUD
+ * (mirrors suika/index.html --settings-top + row height + gap).
+ */
+function measureTopHudClearancePx(w: number, h: number, pointerCoarse: boolean): number {
+  const vmin = Math.min(w, h);
+  const vh = h;
+  const topInset = pointerCoarse
+    ? Math.max(120, Math.min(0.38 * vmin, 0.26 * vmin + 0.01 * vh))
+    : Math.max(45, Math.min(0.12 * vmin, 0.055 * vmin + 0.012 * vh));
+  const hudRowH = Math.min(72, Math.max(44, 0.13 * vmin));
+  const settingsBtnH = Math.min(56, Math.max(44, 0.115 * vmin));
+  const blockH = Math.max(hudRowH, settingsBtnH);
+  return topInset + blockH + 12;
+}
+
 function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -179,6 +196,8 @@ function bootstrapGame(): void {
     (() => {
       throw new Error("2D context unavailable");
     })();
+  /** Logical (CSS px) coords in all draw calls; backing store = inner size × DPR. */
+  let canvasDpr = 1;
   /** WebViews often skip pointerup or never grant capture; track the active pointer explicitly. */
   let canvasPointerActive = false;
   let canvasPointerId: number | null = null;
@@ -241,20 +260,42 @@ function bootstrapGame(): void {
   function calculateLayout(): void {
     const w = window.innerWidth;
     const h = window.innerHeight;
+    const coarse = window.matchMedia("(pointer: coarse)").matches;
     const maxCupW = Math.min(w * 0.88, 420);
     const cupW = maxCupW;
-    const cupH = Math.min(h * 0.58, cupW * 1.35);
     const cupX = (w - cupW) / 2;
-    const cupY = h * 0.14 + (h * 0.72 - cupH) / 2;
+
+    const topClear = measureTopHudClearancePx(w, h, coarse);
+    const bottomPad = coarse ? Math.max(90, h * 0.2) : Math.max(68, h * 0.16);
+    const verticalBudget = Math.max(0, h - topClear - bottomPad);
+
+    const nominalCupH = Math.min(h * 0.58, cupW * 1.35);
+    const MIN_CUP_H = 108;
+    let cupH = Math.min(nominalCupH, verticalBudget);
+    cupH = Math.max(cupH, Math.min(MIN_CUP_H, verticalBudget));
+
+    let cupY = h * 0.14 + (h * 0.72 - cupH) / 2;
+    cupY = Math.max(topClear, cupY);
+    cupY = Math.min(cupY, h - bottomPad - cupH);
+
     const dangerY = cupY + 72;
     layout = { w, h, cupX, cupY, cupW, cupH, dangerY };
   }
   function resizeCanvas(): void {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const dpr = Math.min(Math.max(1, window.devicePixelRatio || 1), 3);
+    canvasDpr = dpr;
+    canvas.width = Math.max(1, Math.round(w * dpr));
+    canvas.height = Math.max(1, Math.round(h * dpr));
+    canvas.style.width = w + "px";
+    canvas.style.height = h + "px";
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
     calculateLayout();
     game?.setLayout(layout);
-    console.log("[resizeCanvas]", layout.w + "x" + layout.h);
+    console.log("[resizeCanvas]", layout.w + "x" + layout.h + " @dpr " + dpr);
   }
   function drawCup(): void {
     const { w, h, cupX, cupY, cupW, cupH, dangerY } = layout;
@@ -331,6 +372,9 @@ function bootstrapGame(): void {
     const nowMs = performance.now();
     const dt = Math.min(0.055, (nowMs - frameClockMs) / 1000);
     frameClockMs = nowMs;
+    ctx.setTransform(canvasDpr, 0, 0, canvasDpr, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
     mergeJuice.update(dt);
     drawCup();
     mergeFanfare.update(dt);
@@ -611,7 +655,8 @@ function bootstrapGame(): void {
         onGameOver: (s) => beginGameOverDrama(s),
         getSettings: () => ({ haptics: settings.haptics }),
         onMerge: (p) => {
-          audio.playMerge();
+          mergeJuice.trigger(!reduceMotion);
+          audio.playMerge(mergeJuice.getCombo());
           const tier = mergeWordTier(p.scoreAdd, p.newTier);
           if (tier === "inferno") {
             triggerHaptic("success", settings);
@@ -634,7 +679,6 @@ function bootstrapGame(): void {
             reduceMotion,
           );
           if (!reduceMotion) {
-            mergeJuice.trigger();
             if (tier === "inferno") {
               mergeJuice.triggerInfernoPulse();
               mergeJuice.triggerNetZoom(1.48);

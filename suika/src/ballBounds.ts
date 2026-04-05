@@ -21,8 +21,56 @@ export interface BallColliderConfigPolygon {
 
 const STORAGE_KEY = "suikaBallBounds";
 
-/** Paste values from the bounds editor here so production uses them without localStorage. */
-export const COMMITTED_BALL_BOUNDS: Record<string, BallColliderConfig> = {};
+/**
+ * Shipped colliders — **these override localStorage** for each id present here.
+ *
+ * Workflow:
+ * 1. Add ball images under `assets/balls/` (filename without extension = id).
+ * 2. Open the game with **`?bounds`** on the URL (or tap “Tune ball colliders” on the start screen).
+ * 3. For each ball: choose Circle or polygon, adjust, then **Copy TS**.
+ * 4. Paste the exported entries into this object and commit — builds then work everywhere without localStorage.
+ *
+ * Example circle: `{ mode: "circle", radiusScale: 0.48, offsetX: 0, offsetY: 0 }`
+ * Example polygon: `{ mode: "polygon", vertices: [{ x: 0, y: -0.92 }, ...] }`
+ */
+export const COMMITTED_BALL_BOUNDS: Record<string, BallColliderConfig> = {
+  badminton: {
+    mode: "polygon",
+    vertices: [
+      { x: 0.7900568895793826, y: 0.1714442941922365 },
+      { x: 0.9979665973634306, y: 0.9718966691608215 },
+      { x: -1.0499440243094427, y: 0.43652917161689775 },
+      { x: -0.4262149009572985, y: -0.3015502910164728 },
+      { x: -0.14033905275423245, y: -0.6757877650277593 },
+      { x: 0.07796614041901802, y: -1.0032455547876349 },
+      { x: 0.4418081290411021, y: -1.0136410401768374 },
+      { x: 0.7536726907171741, y: -0.7381606773629737 },
+      { x: 0.6653110649089538, y: -0.27556157754346683 },
+    ],
+  },
+  baseball: { mode: "circle", radiusScale: 0.98, offsetX: 0, offsetY: 0 },
+  bowling: { mode: "circle", radiusScale: 0.98, offsetX: 0, offsetY: 0 },
+  golf: { mode: "circle", radiusScale: 1, offsetX: 0, offsetY: 0 },
+  pool: { mode: "circle", radiusScale: 0.98, offsetX: 0, offsetY: 0 },
+  rugby: {
+    mode: "polygon",
+    vertices: [
+      { x: 0.15483488428784925, y: 0.9615886311731886 },
+      { x: -0.9179496711351063, y: 0.8510314185708641 },
+      { x: -1.614706650430428, y: 0.3866911256410999 },
+      { x: -1.1723212667508587, y: -0.3319307562740109 },
+      { x: -0.46450465286354775, y: -0.8626053767651699 },
+      { x: 0.37602757612763393, y: -0.9510511468470295 },
+      { x: 1.1059634591989234, y: -0.7631038854230775 },
+      { x: 1.6036470158384388, y: -0.46459941139680067 },
+      { x: 1.470931400734568, y: -0.033426282247734196 },
+      { x: 0.9953671132790309, y: 0.5635826658048195 },
+    ],
+  },
+  soccer: { mode: "circle", radiusScale: 0.97, offsetX: 0, offsetY: 0 },
+  tennis: { mode: "circle", radiusScale: 0.99, offsetX: 0, offsetY: 0 },
+  volley: { mode: "circle", radiusScale: 0.97, offsetX: 0, offsetY: 0 },
+};
 
 export const DEFAULT_CIRCLE: BallColliderConfigCircle = {
   mode: "circle",
@@ -45,6 +93,36 @@ export function isPolygonConfig(c: BallColliderConfig): c is BallColliderConfigP
 /** True when polygon has enough vertices for a closed collider. */
 export function isValidPolygonCollider(c: BallColliderConfigPolygon): boolean {
   return c.vertices.length >= 3;
+}
+
+/** Clamp circle colliders — allow up to ~full visual radius (editor often uses 0.97–1.0). */
+export function sanitizeCircleConfig(c: BallColliderConfigCircle): BallColliderConfigCircle {
+  const r = Math.min(1.08, Math.max(0.2, Number.isFinite(c.radiusScale) ? c.radiusScale : DEFAULT_CIRCLE.radiusScale));
+  const ox = Math.min(0.45, Math.max(-0.45, Number.isFinite(c.offsetX) ? c.offsetX : 0));
+  const oy = Math.min(0.45, Math.max(-0.45, Number.isFinite(c.offsetY) ? c.offsetY : 0));
+  return { mode: "circle", radiusScale: r, offsetX: ox, offsetY: oy };
+}
+
+/**
+ * Reject polygon data that would create huge or NaN bodies (corrupt localStorage, bad editor export).
+ */
+export function polygonPixelOffsetsLookSane(
+  offsets: Array<{ x: number; y: number }>,
+  displayRadius: number,
+): boolean {
+  if (offsets.length < 3) {
+    return false;
+  }
+  const limit = Math.max(displayRadius * 2.35, 28);
+  for (const p of offsets) {
+    if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) {
+      return false;
+    }
+    if (Math.abs(p.x) > limit || Math.abs(p.y) > limit) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /**
@@ -149,10 +227,18 @@ export function clearStoredBoundsMap(): void {
   localStorage.removeItem(STORAGE_KEY);
 }
 
-/** Merged: committed defaults, then localStorage overrides. */
+/**
+ * Resolve collider for one ball id.
+ * **Committed (source code) wins** over localStorage so shipped games are not overridden by stale dev storage.
+ * localStorage is only used when there is no entry in COMMITTED_BALL_BOUNDS for that id.
+ */
 export function getBoundsForId(id: string, stored: Record<string, BallColliderConfig>): BallColliderConfig {
-  if (stored[id]) return cloneConfig(stored[id]);
-  if (COMMITTED_BALL_BOUNDS[id]) return cloneConfig(COMMITTED_BALL_BOUNDS[id]);
+  if (COMMITTED_BALL_BOUNDS[id]) {
+    return cloneConfig(COMMITTED_BALL_BOUNDS[id]);
+  }
+  if (stored[id]) {
+    return cloneConfig(stored[id]);
+  }
   return { ...DEFAULT_CIRCLE };
 }
 

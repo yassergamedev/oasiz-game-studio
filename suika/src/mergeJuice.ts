@@ -25,13 +25,17 @@ export class MergeJuice {
 
   private infernoHeat = 0;
 
-  trigger(): void {
+  /**
+   * @param visuals - When false (e.g. reduced motion), only updates combo timing for SFX; no shake/flash/zoom.
+   */
+  trigger(visuals = true): void {
     const now = performance.now();
     if (now - this.lastMergeAt > this.comboBreakMs) {
       this.combo = 0;
     }
     this.combo = Math.min(this.combo + 1, 14);
     this.lastMergeAt = now;
+    if (!visuals) return;
     const mult = 1 + this.combo * 0.2;
     this.shakeAmp = Math.min(24, this.shakeAmp + 5.8 * mult);
     this.flash = Math.min(0.78, this.flash + 0.17 * mult);

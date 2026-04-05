@@ -7,9 +7,12 @@ import {
   isPolygonConfig,
   isValidPolygonCollider,
   loadStoredBoundsMap,
+  polygonPixelOffsetsLookSane,
   polygonToPixelOffsetsFromCenter,
+  sanitizeCircleConfig,
   type BallColliderConfig,
 } from "./ballBounds";
+import { isLikelyIOS } from "./platformDevices";
 import { resolveTierIds } from "./ballTiers";
 import type { MergeFanfarePayload } from "./mergeFanfare";
 import { submitFinalScoreToPlatform } from "./platformBridge";
@@ -91,6 +94,8 @@ export class SuikaGame {
   private lastWallBounceSfxAt = 0;
   private collisionHandler: (e: Matter.IEventCollision<Matter.Engine>) => void;
   private afterUpdateHandler: () => void;
+  /** iOS WebKit: avoid fromVertices polygons, tighter solver, no sleeping (stack glitches). */
+  private readonly iosPhysicsHost: boolean;
 
   constructor(
     layout: GameLayout,
@@ -113,10 +118,17 @@ export class SuikaGame {
     this.onDrop = callbacks.onDrop;
     this.onWallBounce = callbacks.onWallBounce;
 
+    this.iosPhysicsHost = isLikelyIOS();
     this.engine = Matter.Engine.create({
       gravity: { x: 0, y: 1.15 },
-      enableSleeping: true,
+      enableSleeping: !this.iosPhysicsHost,
+      positionIterations: this.iosPhysicsHost ? 10 : 6,
+      velocityIterations: this.iosPhysicsHost ? 6 : 4,
+      constraintIterations: this.iosPhysicsHost ? 4 : 2,
     });
+    if (this.iosPhysicsHost) {
+      console.log("[SuikaGame]", "iOS-style host: stable solver, no sleep, circle colliders only");
+    }
     this.runner = Matter.Runner.create();
     /**
      * Do not use Matter.Runner.run — it uses its own rAF and doubles up with stepPhysics()
@@ -313,9 +325,9 @@ export class SuikaGame {
   handlePointer(clientX: number, _clientY: number, canvas: HTMLCanvasElement): void {
     const wasActive = this.pointerActive;
     const rect = canvas.getBoundingClientRect();
-    const x = clientX - rect.left;
-    const scale = canvas.width / rect.width;
-    const px = x * scale;
+    const xCss = clientX - rect.left;
+    const wRatio = rect.width > 0 ? this.layout.w / rect.width : 1;
+    const px = xCss * wRatio;
     const r = tierRadius(this.layout, this.currentTier, this.tierIds.length);
     const inset = CUP_INNER_INSET;
     const minX = this.layout.cupX + inset + r;
@@ -361,7 +373,13 @@ export class SuikaGame {
     const minSide = Math.min(nw, nh);
     const displayRadius = tierRadius(this.layout, tier, this.tierIds.length);
     const displayScale = (2 * displayRadius) / minSide;
-    const bounds = getBoundsForId(assetId, this.boundsMap);
+    let bounds: BallColliderConfig = getBoundsForId(assetId, this.boundsMap);
+    if (this.iosPhysicsHost && isPolygonConfig(bounds)) {
+      bounds = { ...DEFAULT_CIRCLE };
+    }
+    if (isCircleConfig(bounds)) {
+      bounds = sanitizeCircleConfig(bounds);
+    }
 
     const common: Matter.IBodyDefinition = {
       label: BALL_LABEL,
@@ -369,7 +387,8 @@ export class SuikaGame {
       frictionAir: 0.011,
       restitution: 0.32,
       density: 0.0018,
-      sleepThreshold: 36,
+      sleepThreshold: this.iosPhysicsHost ? 60 : 36,
+      slop: this.iosPhysicsHost ? 0.085 : 0.05,
     };
 
     let body: Matter.Body;
@@ -396,7 +415,8 @@ export class SuikaGame {
       body = Matter.Bodies.circle(spriteX, spriteY, radFallback, common);
       spriteOffsetX = 0;
       spriteOffsetY = 0;
-      const convexOk = Matter.Vertices.isConvex(worldVerts);
+      const sanePoly = polygonPixelOffsetsLookSane(local, displayRadius);
+      const convexOk = sanePoly && Matter.Vertices.isConvex(worldVerts);
       if (convexOk) {
         try {
           const polyBody = Matter.Bodies.fromVertices(
@@ -408,7 +428,15 @@ export class SuikaGame {
             0.01,
             0,
           );
-          if (polyBody.area >= 8 && Number.isFinite(polyBody.position.x) && Number.isFinite(polyBody.position.y)) {
+          const bw = polyBody.bounds.max.x - polyBody.bounds.min.x;
+          const bh = polyBody.bounds.max.y - polyBody.bounds.min.y;
+          const spanOk = bw < displayRadius * 9 && bh < displayRadius * 9;
+          if (
+            spanOk &&
+            polyBody.area >= 8 &&
+            Number.isFinite(polyBody.position.x) &&
+            Number.isFinite(polyBody.position.y)
+          ) {
             body = polyBody;
             spriteOffsetX = spriteX - body.position.x;
             spriteOffsetY = spriteY - body.position.y;
@@ -550,8 +578,8 @@ export class SuikaGame {
   nudgeDropper(canvas: HTMLCanvasElement, dxScreenPx: number): void {
     const wasActive = this.pointerActive;
     const rect = canvas.getBoundingClientRect();
-    const scale = canvas.width / rect.width;
-    this.dropperX += dxScreenPx * scale;
+    const wRatio = rect.width > 0 ? this.layout.w / rect.width : 1;
+    this.dropperX += dxScreenPx * wRatio;
     const r = tierRadius(this.layout, this.currentTier, this.tierIds.length);
     const inset = CUP_INNER_INSET;
     const minX = this.layout.cupX + inset + r;

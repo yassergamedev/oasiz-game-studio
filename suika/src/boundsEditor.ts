@@ -123,7 +123,7 @@ export function runBoundsEditor(): void {
   top.appendChild(el("span", "be-title", "Ball bounds"));
   const sub = el("div", "be-sub");
   sub.textContent =
-    "Circle: sliders. Polygon: closed edge loop — tap empty area to add a corner, drag a point to move it (image center = origin; units = min(side)/2). Copy JSON / Copy TS to paste into ballBounds.ts. Save stores localStorage.";
+    "Circle: sliders. Polygon: tap to add corners, drag to move (center = origin; units = min(side)/2). Use Copy TS → paste entries into COMMITTED_BALL_BOUNDS in src/ballBounds.ts (committed overrides localStorage). Save writes localStorage for dev only.";
   top.appendChild(sub);
 
   const nav = el("div", "be-nav");

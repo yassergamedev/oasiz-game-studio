@@ -57,7 +57,8 @@ function distortedShaperCurve(sampleCount: number, k: number): Float32Array {
 }
 
 export interface SuikaAudioController {
-  playMerge(): void;
+  /** Combo 1 = normal speed; 2+ = same clip forward with rising playbackRate (pitch + speed). */
+  playMerge(comboStep?: number): void;
   playDrop(): void;
   playBounce(heavy: boolean): void;
   playUi(): void;
@@ -95,6 +96,79 @@ export function createSuikaAudio(): SuikaAudioController {
   let mediaSrc: MediaElementAudioSourceNode | null = null;
   let lowpass: BiquadFilterNode | null = null;
   let shaper: WaveShaperNode | null = null;
+
+  /** One-shots only — BGM uses `ac` above, separate context keeps routing simple. */
+  let sfxAc: AudioContext | null = null;
+  let sfxLowpass: BiquadFilterNode | null = null;
+  let sfxBusGain: GainNode | null = null;
+
+  /** Extra attenuation on SFX vs previous HTMLAudio-only levels (BGM unchanged). */
+  const SFX_CLIP_SCALE = 0.4;
+  const SFX_LOWPASS_HZ = 3200;
+
+  let mergeForwardBuf: AudioBuffer | null = null;
+  let mergeBuffersPromise: Promise<boolean> | null = null;
+
+  function ensureMergeBuffersLoaded(): Promise<boolean> {
+    if (mergeForwardBuf) return Promise.resolve(true);
+    if (mergeBuffersPromise) return mergeBuffersPromise;
+    const url = resolveUrl(stems, "merge");
+    if (!url) return Promise.resolve(false);
+    mergeBuffersPromise = (async (): Promise<boolean> => {
+      try {
+        ensureSfxGraph();
+        if (!sfxAc) return false;
+        const res = await fetch(url);
+        const raw = await res.arrayBuffer();
+        mergeForwardBuf = await sfxAc.decodeAudioData(raw.slice(0));
+        console.log("[createSuikaAudio]", "merge clip decoded");
+        return true;
+      } catch {
+        mergeBuffersPromise = null;
+        return false;
+      }
+    })();
+    return mergeBuffersPromise;
+  }
+
+  function ensureSfxGraph(): void {
+    if (sfxAc) return;
+    const ctx = new AudioContext();
+    sfxAc = ctx;
+    sfxLowpass = ctx.createBiquadFilter();
+    sfxLowpass.type = "lowpass";
+    sfxLowpass.frequency.value = SFX_LOWPASS_HZ;
+    sfxLowpass.Q.value = 0.71;
+    sfxBusGain = ctx.createGain();
+    sfxBusGain.gain.value = 0.88;
+    sfxLowpass.connect(sfxBusGain);
+    sfxBusGain.connect(ctx.destination);
+    console.log("[createSuikaAudio]", "sfx lowpass bus ready");
+  }
+
+  function playSfxUrl(url: string, linearVolume: number): void {
+    if (!fxOn) return;
+    ensureSfxGraph();
+    if (!sfxAc || !sfxLowpass) return;
+    void sfxAc.resume().catch(() => {});
+    const a = new Audio(url);
+    const src = sfxAc.createMediaElementSource(a);
+    const clipGain = sfxAc.createGain();
+    clipGain.gain.value = Math.max(0, Math.min(1, linearVolume * SFX_CLIP_SCALE));
+    src.connect(clipGain);
+    clipGain.connect(sfxLowpass);
+    const cleanup = (): void => {
+      src.disconnect();
+      clipGain.disconnect();
+      a.removeAttribute("src");
+      a.load();
+    };
+    a.addEventListener("ended", cleanup, { once: true });
+    a.addEventListener("error", cleanup, { once: true });
+    void a.play().catch(() => {
+      cleanup();
+    });
+  }
 
   function ensureBgmGraph(): void {
     if (!bgm || ac) return;
@@ -136,12 +210,9 @@ export function createSuikaAudio(): SuikaAudioController {
   }
 
   function playOneShot(aliasKey: keyof typeof STEM_ALIASES, volume: number): void {
-    if (!fxOn) return;
     const url = resolveUrl(stems, aliasKey);
     if (!url) return;
-    const a = new Audio(url);
-    a.volume = volume;
-    void a.play().catch(() => {});
+    playSfxUrl(url, volume);
   }
 
   function syncBgm(): void {
@@ -156,21 +227,45 @@ export function createSuikaAudio(): SuikaAudioController {
     }
   }
 
+  function playMergeBuffered(comboStep: number): void {
+    void (async (): Promise<void> => {
+      if (!fxOn) return;
+      const ok = await ensureMergeBuffersLoaded();
+      if (!ok || !mergeForwardBuf || !sfxAc || !sfxLowpass) {
+        playOneShot("merge", 0.88);
+        return;
+      }
+      void sfxAc.resume().catch(() => {});
+      const st = Math.min(14, Math.max(1, Math.floor(comboStep)));
+      const rate =
+        st <= 1 ? 1 : Math.min(1.48, 1.1 + (st - 2) * 0.11);
+      const src = sfxAc.createBufferSource();
+      src.buffer = mergeForwardBuf;
+      src.playbackRate.value = rate;
+      const clipGain = sfxAc.createGain();
+      clipGain.gain.value = Math.max(0, Math.min(1, 0.88 * SFX_CLIP_SCALE));
+      src.connect(clipGain);
+      clipGain.connect(sfxLowpass);
+      src.onended = (): void => {
+        src.disconnect();
+        clipGain.disconnect();
+      };
+      src.start(0);
+    })();
+  }
+
   return {
-    playMerge(): void {
-      playOneShot("merge", 0.88);
+    playMerge(comboStep = 1): void {
+      playMergeBuffered(comboStep);
     },
     playDrop(): void {
       playOneShot("drop", 0.82);
     },
     playBounce(heavy: boolean): void {
-      if (!fxOn) return;
       let url = heavy ? resolveUrl(stems, "bounce_heavy") : null;
       if (!url) url = resolveUrl(stems, "bounce");
       if (!url) return;
-      const a = new Audio(url);
-      a.volume = heavy ? 0.78 : 0.55;
-      void a.play().catch(() => {});
+      playSfxUrl(url, heavy ? 0.78 : 0.55);
     },
     playUi(): void {
       playOneShot("ui", 0.65);
@@ -204,6 +299,9 @@ export function createSuikaAudio(): SuikaAudioController {
     resumeAfterBackground(): void {
       if (ac && ac.state === "suspended") {
         void ac.resume().catch(() => {});
+      }
+      if (sfxAc && sfxAc.state === "suspended") {
+        void sfxAc.resume().catch(() => {});
       }
       syncBgm();
       console.log("[resumeAfterBackground]", "audio sync");

@@ -31,21 +31,26 @@
         --panel: rgba(255, 253, 247, 0.94);
         --stroke: rgba(58, 79, 108, 0.35);
         --panel-border: #3d5a80;
-        /* Score row + settings share this Y; never below safe-area; desktop floor 45px (AGENTS) */
-        --hud-pad-x: max(env(safe-area-inset-left, 0px), clamp(0.5rem, 2.4vw, 0.875rem));
-        --hud-pad-x-end: max(env(safe-area-inset-right, 0px), clamp(0.5rem, 2.4vw, 0.875rem));
-        --settings-top: max(env(safe-area-inset-top, 0px), clamp(45px, 5vmin, 52px));
+        /*
+         * Top/side insets scale with viewport (vmin/vw) — not fixed px — plus safe-area.
+         * Floors keep AGENTS: 45px desktop / 120px touch minimum top for interactive HUD.
+         */
+        --hud-pad-x: max(env(safe-area-inset-left, 0px), clamp(4px, 1.85vw, 2.4vmin));
+        --hud-pad-x-end: max(env(safe-area-inset-right, 0px), clamp(4px, 1.85vw, 2.4vmin));
+        --settings-top: max(
+          env(safe-area-inset-top, 0px),
+          clamp(45px, calc(5.5vmin + 1.2vh), 12vmin)
+        );
       }
 
       @media (pointer: coarse) {
         :root {
-          /*
-           * Tighter than a flat 120px so the row sits higher; still caps at 120px when vmin is large.
-           * Raise the clamp minimum if the platform chrome covers controls.
-           */
-          --settings-top: max(env(safe-area-inset-top, 0px), clamp(76px, 11vmin, 120px));
-          --hud-pad-x: max(env(safe-area-inset-left, 0px), clamp(0.375rem, 2vw, 0.625rem));
-          --hud-pad-x-end: max(env(safe-area-inset-right, 0px), clamp(0.375rem, 2vw, 0.625rem));
+          --hud-pad-x: max(env(safe-area-inset-left, 0px), clamp(6px, 2.2vw, 3vmin));
+          --hud-pad-x-end: max(env(safe-area-inset-right, 0px), clamp(6px, 2.2vw, 3vmin));
+          --settings-top: max(
+            env(safe-area-inset-top, 0px),
+            clamp(120px, calc(26vmin + 1vh), 38vmin)
+          );
         }
       }
 
@@ -68,6 +73,9 @@
         background: linear-gradient(180deg, var(--sky-bright) 0%, var(--sky-soft) 42%, #dff6e8 78%, var(--field) 100%);
         font-family: "Fredoka", system-ui, sans-serif;
         color: var(--text);
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        text-rendering: optimizeLegibility;
       }
 
       /* Slides in from the right over the main menu */
@@ -99,7 +107,7 @@
         pointer-events: auto;
       }
 
-      #mergeJuiceRoot #settingsBtn {
+      #gameplayShell > #settingsBtn {
         pointer-events: auto;
       }
 
@@ -392,6 +400,26 @@
         animation: startFadeUp 0.52s ease-out 0.42s forwards, startBtnGlow 2.5s ease-in-out 1.15s infinite;
       }
 
+      .start-bounds-wrap {
+        margin-top: 18px;
+        text-align: center;
+        opacity: 0;
+        animation: startFadeUp 0.52s ease-out 0.55s forwards;
+      }
+
+      .start-bounds-link {
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: var(--ink-soft);
+        text-decoration: none;
+        border-bottom: 1px dashed rgba(58, 79, 108, 0.35);
+        padding-bottom: 2px;
+      }
+
+      .start-bounds-link:active {
+        color: var(--orange-deep);
+      }
+
       @media (prefers-reduced-motion: reduce) {
         #startScreen,
         #startScreen::before,
@@ -399,6 +427,7 @@
         .start-brand,
         .start-brand h1,
         #btnStart,
+        .start-bounds-wrap,
         #noAssetWarning:not(.hidden) {
           animation: none !important;
         }
@@ -408,7 +437,8 @@
         }
 
         #startScreen .start-brand h1,
-        #btnStart {
+        #btnStart,
+        .start-bounds-wrap {
           opacity: 1 !important;
           transform: none !important;
           animation: none !important;
@@ -416,6 +446,11 @@
           -webkit-text-fill-color: var(--ink) !important;
           background: none !important;
           filter: none !important;
+        }
+
+        .start-bounds-link {
+          color: var(--ink-soft) !important;
+          -webkit-text-fill-color: var(--ink-soft) !important;
         }
 
         #gameplayShell {
@@ -450,23 +485,21 @@
         pointer-events: none;
       }
 
+      /* Score = top-left corner; Next = true horizontal center; settingsBtn is sibling, top-right */
       #hudTop {
         position: absolute;
         left: 0;
         right: 0;
         top: var(--settings-top);
-        padding: 0 var(--hud-pad-x-end) clamp(0.75rem, 2vmin, 1rem) var(--hud-pad-x);
-        display: grid;
-        grid-template-columns: 1fr auto 1fr;
-        align-items: center;
-        gap: clamp(0.5rem, 2.2vw, 0.875rem);
+        padding: 0 0 clamp(0.5rem, 2vmin, 1.25rem);
+        min-height: clamp(44px, 13vmin, 72px);
+        pointer-events: none;
       }
 
       @media (pointer: coarse) {
         #hudTop {
-          padding: 0 var(--hud-pad-x-end) 0.25rem var(--hud-pad-x);
-          gap: clamp(0.35rem, 1.8vw, 0.65rem);
-          align-items: flex-start;
+          padding: 0 0 clamp(0.2rem, 1.2vmin, 0.5rem);
+          min-height: clamp(42px, 12vmin, 64px);
         }
 
         #hudTop .hud-card {
@@ -502,31 +535,23 @@
           font-size: 0.98rem;
           line-height: 1;
         }
-
-        #nextBubble {
-          min-width: 72px;
-        }
-
-        #nextOrb {
-          width: 38px;
-          height: 38px;
-          margin-top: 2px;
-          border: none;
-          box-shadow: 0 4px 14px rgba(45, 74, 110, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.65);
-        }
       }
 
       .hud-top-cell--left {
-        justify-self: start;
+        position: absolute;
+        top: 0;
+        left: var(--hud-pad-x);
+        justify-self: unset;
         justify-items: start;
-        width: 100%;
+        width: auto;
         min-width: 0;
+        z-index: 2;
       }
 
       .hud-top-cell--left .hud-card {
         text-align: left;
         margin-inline: 0;
-        margin-right: auto;
+        margin-right: 0;
         max-width: min(104px, 28vw);
         padding: clamp(0.35rem, 1.2vmin, 0.5rem) clamp(0.5rem, 1.8vw, 0.65rem);
       }
@@ -543,16 +568,13 @@
       }
 
       .hud-top-cell--center {
-        justify-self: center;
-        grid-column: 2;
-      }
-
-      .hud-top-cell--right {
-        justify-self: end;
-        grid-column: 3;
-        width: 0;
-        min-width: 0;
-        pointer-events: none;
+        position: absolute;
+        top: 0;
+        left: 50%;
+        transform: translateX(-50%);
+        justify-self: unset;
+        grid-column: unset;
+        z-index: 1;
       }
 
       .hud-card {
@@ -584,7 +606,7 @@
         display: flex;
         flex-direction: column;
         align-items: center;
-        min-width: 88px;
+        min-width: clamp(64px, 20vmin, 104px);
         text-align: center;
       }
 
@@ -808,7 +830,7 @@
 
       #hud.hud--intro-pop #hudTop {
         animation: gameplayHudPopIn 0.52s cubic-bezier(0.28, 1.28, 0.32, 1) both;
-        transform-origin: top center;
+        transform-origin: top left;
       }
 
       #hud.hud--intro-pop .hud-evolution {
@@ -876,15 +898,21 @@
       }
 
       #nextOrb {
-        width: 48px;
-        height: 48px;
+        width: clamp(32px, 10vmin, 56px);
+        height: clamp(32px, 10vmin, 56px);
         border-radius: 50%;
-        margin-top: 6px;
+        margin-top: clamp(2px, 0.9vmin, 10px);
         background: radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.85), transparent 42%), var(--cream);
         border: none;
         box-shadow: 0 5px 16px rgba(45, 74, 110, 0.12), inset 0 -2px 10px rgba(200, 230, 255, 0.45),
           inset 0 1px 0 rgba(255, 255, 255, 0.75);
         transform-origin: center center;
+      }
+
+      @media (pointer: coarse) {
+        #nextOrb {
+          box-shadow: 0 4px 14px rgba(45, 74, 110, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.65);
+        }
       }
 
       @keyframes nextOrbSwapIn {
@@ -906,16 +934,16 @@
         animation: nextOrbSwapIn 0.48s cubic-bezier(0.28, 1.25, 0.32, 1) both;
       }
 
-      /* Settings button — interactive (desktop: below top bar; mobile: flush with HUD row) */
+      /* Settings — top-right; size scales with vmin like the rest of the HUD */
       #settingsBtn {
         position: absolute;
         top: var(--settings-top);
         right: var(--hud-pad-x-end);
         z-index: 30;
-        width: 48px;
-        height: 48px;
-        border-radius: 14px;
-        border: 3px solid var(--panel-border);
+        width: clamp(44px, 11.5vmin, 56px);
+        height: clamp(44px, 11.5vmin, 56px);
+        border-radius: clamp(12px, 3vmin, 16px);
+        border: clamp(2px, 0.55vmin, 3px) solid var(--panel-border);
         background: var(--cream);
         color: var(--ink);
         cursor: pointer;
@@ -927,24 +955,24 @@
       }
 
       #settingsBtn svg {
-        width: 24px;
-        height: 24px;
+        width: clamp(20px, 5.2vmin, 26px);
+        height: clamp(20px, 5.2vmin, 26px);
       }
 
       @media (pointer: coarse) {
         #settingsBtn {
           top: var(--settings-top);
           right: var(--hud-pad-x-end);
-          width: 40px;
-          height: 40px;
-          border-radius: 12px;
-          border-width: 2px;
+          width: clamp(40px, 10.5vmin, 52px);
+          height: clamp(40px, 10.5vmin, 52px);
+          border-radius: clamp(10px, 2.8vmin, 14px);
+          border-width: clamp(2px, 0.5vmin, 3px);
           box-shadow: 0 3px 0 rgba(45, 74, 110, 0.16);
         }
 
         #settingsBtn svg {
-          width: 22px;
-          height: 22px;
+          width: clamp(18px, 4.8vmin, 24px);
+          height: clamp(18px, 4.8vmin, 24px);
         }
       }
 
@@ -1146,12 +1174,18 @@
           Add ball images (.png / .webp) to the suika/assets/balls folder, then run the build again.
         </p>
         <button type="button" class="btn-primary" id="btnStart">Play</button>
+        <!-- Dev: collider editor — append ?bounds to URL or uncomment:
+        <p class="start-bounds-wrap">
+          <a class="start-bounds-link" href="?bounds" id="boundsEditorLink">Tune ball colliders</a>
+        </p>
+        -->
       </div>
     </div>
 
     <div id="gameplayShell">
       <div id="mergeJuiceRoot">
-      <canvas id="gameCanvas" aria-label="Game" tabindex="0"></canvas>
+        <canvas id="gameCanvas" aria-label="Game" tabindex="0"></canvas>
+      </div>
 
       <div id="hud" class="hidden">
         <div id="hudTop">
@@ -1167,7 +1201,6 @@
               <div id="nextOrb" aria-hidden="true"></div>
             </div>
           </div>
-          <div class="hud-top-cell hud-top-cell--right" aria-hidden="true"></div>
         </div>
         <div class="hud-evolution" id="hudEvolution" aria-hidden="true">
           <span class="hud-evolution-title">Merge chain</span>
@@ -1183,7 +1216,6 @@
           />
         </svg>
       </button>
-      </div>
     </div>
 
     <div id="gameOver" class="hidden">
