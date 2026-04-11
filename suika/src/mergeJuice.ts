@@ -36,6 +36,18 @@ export class MergeJuice {
     this.combo = Math.min(this.combo + 1, 14);
     this.lastMergeAt = now;
     if (!visuals) return;
+    this.applyVisualBurst();
+  }
+
+  /**
+   * Apply shake/flash/zoom based on the current combo without incrementing combo count.
+   * Useful when merge celebrations are coalesced (burst debounce) to avoid stacked VFX lag.
+   */
+  burstVisualsFromCurrentCombo(): void {
+    this.applyVisualBurst();
+  }
+
+  private applyVisualBurst(): void {
     const mult = 1 + this.combo * 0.2;
     this.shakeAmp = Math.min(24, this.shakeAmp + 5.8 * mult);
     this.flash = Math.min(0.78, this.flash + 0.17 * mult);

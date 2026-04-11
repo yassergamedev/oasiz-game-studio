@@ -84,12 +84,14 @@ export function createSuikaAudio(): SuikaAudioController {
   let fxOn = true;
   let gameplayActive = false;
   let gameOverMusicMode = false;
+  const BGM_VOLUME_NORMAL = 0.38;
+  const BGM_VOLUME_GAME_OVER = 0.22;
 
   const bgmUrl = resolveUrl(stems, "bgm");
   const bgm = bgmUrl ? new Audio(bgmUrl) : null;
   if (bgm) {
     bgm.loop = true;
-    bgm.volume = 0.38;
+    bgm.volume = BGM_VOLUME_NORMAL;
   }
 
   let ac: AudioContext | null = null;
@@ -101,6 +103,8 @@ export function createSuikaAudio(): SuikaAudioController {
   let sfxAc: AudioContext | null = null;
   let sfxLowpass: BiquadFilterNode | null = null;
   let sfxBusGain: GainNode | null = null;
+  const sfxBufferByStem = new Map<string, AudioBuffer>();
+  const sfxDecodeByStem = new Map<string, Promise<AudioBuffer | null>>();
 
   /** Extra attenuation on SFX vs previous HTMLAudio-only levels (BGM unchanged). */
   const SFX_CLIP_SCALE = 0.4;
@@ -169,6 +173,60 @@ export function createSuikaAudio(): SuikaAudioController {
       cleanup();
     });
   }
+  function stemForAlias(aliasKey: keyof typeof STEM_ALIASES): string | null {
+    for (const stem of STEM_ALIASES[aliasKey]) {
+      if (stems[stem]) return stem;
+    }
+    return null;
+  }
+  function ensureSfxBuffer(stem: string): Promise<AudioBuffer | null> {
+    const existing = sfxBufferByStem.get(stem);
+    if (existing) return Promise.resolve(existing);
+    const pending = sfxDecodeByStem.get(stem);
+    if (pending) return pending;
+    const url = stems[stem];
+    if (!url) return Promise.resolve(null);
+    const task = (async (): Promise<AudioBuffer | null> => {
+      try {
+        ensureSfxGraph();
+        if (!sfxAc) return null;
+        const res = await fetch(url);
+        const raw = await res.arrayBuffer();
+        const decoded = await sfxAc.decodeAudioData(raw.slice(0));
+        sfxBufferByStem.set(stem, decoded);
+        return decoded;
+      } catch {
+        return null;
+      } finally {
+        sfxDecodeByStem.delete(stem);
+      }
+    })();
+    sfxDecodeByStem.set(stem, task);
+    return task;
+  }
+  function playSfxStemBuffered(stem: string, linearVolume: number): void {
+    if (!fxOn) return;
+    void (async (): Promise<void> => {
+      const buf = await ensureSfxBuffer(stem);
+      if (!buf || !sfxAc || !sfxLowpass) {
+        const url = stems[stem];
+        if (url) playSfxUrl(url, linearVolume);
+        return;
+      }
+      void sfxAc.resume().catch(() => {});
+      const src = sfxAc.createBufferSource();
+      src.buffer = buf;
+      const clipGain = sfxAc.createGain();
+      clipGain.gain.value = Math.max(0, Math.min(1, linearVolume * SFX_CLIP_SCALE));
+      src.connect(clipGain);
+      clipGain.connect(sfxLowpass);
+      src.onended = (): void => {
+        src.disconnect();
+        clipGain.disconnect();
+      };
+      src.start(0);
+    })();
+  }
 
   function ensureBgmGraph(): void {
     if (!bgm || ac) return;
@@ -195,12 +253,14 @@ export function createSuikaAudio(): SuikaAudioController {
     void ac.resume().catch(() => {});
     const t = ac.currentTime;
     if (on) {
+      bgm.volume = BGM_VOLUME_GAME_OVER;
       bgm.playbackRate = 0.34;
       lowpass.frequency.cancelScheduledValues(t);
       lowpass.frequency.setValueAtTime(Math.min(lowpass.frequency.value, 9000), t);
       lowpass.frequency.exponentialRampToValueAtTime(420, t + 1.4);
       shaper.curve = new Float32Array(distortedShaperCurve(2048, 6.2));
     } else {
+      bgm.volume = BGM_VOLUME_NORMAL;
       bgm.playbackRate = 1;
       lowpass.frequency.cancelScheduledValues(t);
       lowpass.frequency.setValueAtTime(Math.max(lowpass.frequency.value, 400), t);
@@ -210,9 +270,9 @@ export function createSuikaAudio(): SuikaAudioController {
   }
 
   function playOneShot(aliasKey: keyof typeof STEM_ALIASES, volume: number): void {
-    const url = resolveUrl(stems, aliasKey);
-    if (!url) return;
-    playSfxUrl(url, volume);
+    const stem = stemForAlias(aliasKey);
+    if (!stem) return;
+    playSfxStemBuffered(stem, volume);
   }
 
   function syncBgm(): void {
@@ -280,6 +340,10 @@ export function createSuikaAudio(): SuikaAudioController {
     },
     setGameplayActive(active: boolean): void {
       gameplayActive = active;
+      if (active && gameOverMusicMode) {
+        gameOverMusicMode = false;
+        applyBgmWarp(false);
+      }
       syncBgm();
     },
     enterGameOverMusic(): void {
@@ -290,8 +354,8 @@ export function createSuikaAudio(): SuikaAudioController {
       console.log("[enterGameOverMusic]", "warped bgm");
     },
     exitGameOverMusic(): void {
-      if (!bgm) return;
       gameOverMusicMode = false;
+      if (!bgm) return;
       applyBgmWarp(false);
       syncBgm();
       console.log("[exitGameOverMusic]", "normal bgm");

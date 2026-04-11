@@ -1,0 +1,1003 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, minimal-ui"
+    />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>Breakout</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&display=swap");
+      @import url("https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&display=swap");
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+        font-family: "Outfit", system-ui, sans-serif;
+        background: #0c1222;
+        color: #e2e8f0;
+      }
+
+      #root {
+        position: fixed;
+        inset: 0;
+        overflow: hidden;
+      }
+
+      .menu-canvas,
+      .game-canvas {
+        position: absolute;
+        left: 0;
+        top: 0;
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+
+      .menu-canvas {
+        z-index: 1;
+      }
+
+      .game-canvas {
+        z-index: 2;
+        transform-origin: 50% 50%;
+      }
+
+      .game-canvas.during-attract {
+        visibility: hidden;
+        pointer-events: none;
+      }
+
+      .menu-canvas.menu-off {
+        visibility: hidden;
+        pointer-events: none;
+      }
+
+      /* Menu → game: gameplay slides up from bottom, menu layer pushed up */
+      #root.menu-leave-active .menu-canvas {
+        z-index: 3;
+        pointer-events: none;
+        animation: attractPushUp 0.78s cubic-bezier(0.32, 0.72, 0.22, 1) forwards;
+      }
+
+      #root.menu-leave-active #startOverlay.start-screen {
+        pointer-events: none;
+        z-index: 4;
+        animation: attractPushUp 0.78s cubic-bezier(0.32, 0.72, 0.22, 1) forwards;
+      }
+
+      #root.menu-leave-active .game-canvas {
+        visibility: visible !important;
+        pointer-events: none;
+        z-index: 5;
+        animation: gameplayPushIn 0.78s cubic-bezier(0.32, 0.72, 0.22, 1) forwards;
+      }
+
+      @keyframes attractPushUp {
+        from {
+          transform: translate3d(0, 0, 0);
+        }
+        to {
+          transform: translate3d(0, -100%, 0);
+        }
+      }
+
+      @keyframes gameplayPushIn {
+        from {
+          transform: translate3d(0, 100%, 0);
+        }
+        to {
+          transform: translate3d(0, 0, 0);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        #root.menu-leave-active .menu-canvas,
+        #root.menu-leave-active #startOverlay.start-screen,
+        #root.menu-leave-active .game-canvas {
+          animation: none !important;
+        }
+      }
+
+      .versus-hud {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 0;
+        padding: 0 16px;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 10px;
+        pointer-events: none;
+        z-index: 6;
+      }
+
+      .versus-hud.hidden {
+        visibility: hidden;
+      }
+
+      .versus-hud__stat {
+        font-weight: 700;
+        font-size: clamp(13px, 3.6vw, 17px);
+        letter-spacing: 0.03em;
+        text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+        max-width: 38%;
+      }
+
+      .versus-hud__stat--p1 {
+        color: rgba(125, 211, 252, 0.95);
+        text-align: left;
+      }
+
+      .versus-hud__stat--p2 {
+        color: rgba(196, 181, 253, 0.95);
+        text-align: right;
+      }
+
+      .versus-hud__arena {
+        display: none;
+      }
+
+      #settings-btn {
+        position: absolute;
+        left: 50%;
+        right: auto;
+        top: 0;
+        transform: translateX(-50%);
+        min-width: 48px;
+        min-height: 48px;
+        padding: 2px;
+        border: none;
+        border-radius: 12px;
+        background: transparent;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        z-index: 20;
+      }
+
+      #settings-btn .settings-cog-svg {
+        display: block;
+        width: 44px;
+        height: 44px;
+        color: #7dd3fc;
+        filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.65)) drop-shadow(0 0 22px rgba(34, 211, 238, 0.35));
+      }
+
+      #settings-btn.hidden {
+        display: none;
+      }
+
+      #settings-btn:active {
+        transform: translateX(-50%) scale(0.96);
+      }
+
+      .overlay {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 15;
+        pointer-events: none;
+        background: rgba(8, 12, 24, 0.72);
+        backdrop-filter: blur(10px);
+      }
+
+      /* Title screen: no card — title + play grouped at viewport center */
+      .overlay.start-screen {
+        display: block;
+        background: rgba(4, 8, 18, 0.22);
+        backdrop-filter: blur(6px);
+      }
+
+      .start-screen-center {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: clamp(6px, 1.8vh, 14px);
+        width: min(96vw, 560px);
+        pointer-events: none;
+      }
+
+      .start-title-motion {
+        position: relative;
+        width: 100%;
+        text-align: center;
+        pointer-events: none;
+        animation: startTitleFloat 5.8s ease-in-out infinite;
+      }
+
+      .start-title-motion .menu-title {
+        margin: 0;
+      }
+
+      .start-play-motion {
+        position: relative;
+        flex-shrink: 0;
+        pointer-events: auto;
+      }
+
+      .start-play-btn {
+        appearance: none;
+        border: none;
+        background: transparent;
+        padding: 0;
+        cursor: pointer;
+        line-height: 0;
+        min-width: unset;
+      }
+
+      .neon-play-wrap {
+        position: relative;
+        display: inline-block;
+        line-height: 0;
+        transform-origin: 50% 55%;
+        animation: neonPlayScale 2.5s ease-in-out infinite;
+      }
+
+      .neon-play-bloom {
+        position: absolute;
+        z-index: 0;
+        right: -14%;
+        top: 8%;
+        width: 42%;
+        height: 84%;
+        pointer-events: none;
+        background: radial-gradient(ellipse at center, rgba(148, 163, 184, 0.22) 0%, transparent 72%);
+        filter: blur(14px);
+        opacity: 0.75;
+        animation: neonPlayBloom 2.9s ease-in-out infinite;
+      }
+
+      .neon-play-pill {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-width: min(236px, 64vw);
+        padding: 16px 36px;
+        border-radius: 999px;
+        background: linear-gradient(165deg, rgba(15, 23, 42, 0.98) 0%, rgba(2, 6, 23, 0.99) 55%, rgba(15, 23, 42, 0.95) 100%);
+        border: 2px solid rgba(34, 211, 238, 0.95);
+        box-shadow:
+          0 0 0 1px rgba(56, 189, 248, 0.35),
+          0 0 28px rgba(34, 211, 238, 0.45),
+          0 0 52px rgba(56, 189, 248, 0.22),
+          inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        overflow: hidden;
+      }
+
+      .neon-play-rays {
+        position: absolute;
+        inset: -40%;
+        pointer-events: none;
+        opacity: 0.14;
+        background: repeating-conic-gradient(
+          from 0deg at 50% 50%,
+          rgba(56, 189, 248, 0.5) 0deg 4deg,
+          transparent 4deg 11deg
+        );
+        animation: neonPlayRays 10s linear infinite;
+      }
+
+      .neon-play-dust {
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        pointer-events: none;
+        mix-blend-mode: screen;
+        opacity: 0.72;
+        background-image:
+          radial-gradient(circle at 10% 38%, rgba(34, 211, 238, 0.95) 0, transparent 2px),
+          radial-gradient(circle at 22% 62%, rgba(250, 232, 255, 0.85) 0, transparent 1.5px),
+          radial-gradient(circle at 78% 28%, rgba(244, 114, 182, 0.8) 0, transparent 2px),
+          radial-gradient(circle at 88% 55%, rgba(253, 224, 71, 0.75) 0, transparent 1.5px),
+          radial-gradient(circle at 35% 22%, rgba(56, 189, 248, 0.9) 0, transparent 1.8px),
+          radial-gradient(circle at 55% 78%, rgba(167, 139, 250, 0.65) 0, transparent 2px),
+          radial-gradient(circle at 68% 42%, rgba(255, 255, 255, 0.9) 0, transparent 1.2px),
+          radial-gradient(circle at 48% 35%, rgba(34, 211, 238, 0.7) 0, transparent 1.6px),
+          radial-gradient(circle at 15% 72%, rgba(251, 191, 36, 0.65) 0, transparent 1.4px),
+          linear-gradient(118deg, transparent 42%, rgba(255, 255, 255, 0.12) 49%, transparent 56%),
+          linear-gradient(64deg, transparent 30%, rgba(34, 211, 238, 0.15) 48%, transparent 58%);
+        animation: neonPlayDustA 2.4s ease-in-out infinite;
+      }
+
+      .neon-play-dust--b {
+        mix-blend-mode: overlay;
+        opacity: 0.55;
+        animation: neonPlayDustB 2.1s ease-in-out infinite;
+        animation-delay: -0.9s;
+        background-image:
+          radial-gradient(circle at 40% 48%, rgba(255, 255, 255, 0.5) 0, transparent 1px),
+          radial-gradient(circle at 62% 38%, rgba(34, 211, 238, 0.55) 0, transparent 1.5px),
+          radial-gradient(circle at 28% 52%, rgba(244, 114, 182, 0.45) 0, transparent 1px),
+          radial-gradient(circle at 72% 68%, rgba(253, 224, 71, 0.5) 0, transparent 1.2px),
+          radial-gradient(circle at 52% 18%, rgba(186, 230, 253, 0.65) 0, transparent 1.3px),
+          linear-gradient(-32deg, transparent 35%, rgba(255, 255, 255, 0.18) 50%, transparent 65%);
+      }
+
+      .neon-play-label {
+        position: relative;
+        z-index: 2;
+        font-family: "Orbitron", system-ui, sans-serif;
+        font-weight: 900;
+        font-size: clamp(1.12rem, 4.6vw, 1.52rem);
+        letter-spacing: 0.32em;
+        font-style: italic;
+        text-transform: uppercase;
+        transform: skewX(-7deg);
+        padding-left: 0.32em;
+        color: #ffffff;
+        text-shadow:
+          0 0 10px rgba(34, 211, 238, 0.95),
+          0 0 22px rgba(56, 189, 248, 0.65),
+          0 0 40px rgba(56, 189, 248, 0.35),
+          0 1px 2px rgba(15, 23, 42, 0.9);
+        animation: neonPlayLabelGlow 2.2s ease-in-out infinite;
+      }
+
+      .start-play-btn:active .neon-play-wrap {
+        animation: none;
+        transform: scale(0.94);
+      }
+
+      @keyframes startTitleFloat {
+        0%,
+        100% {
+          transform: translate(0, 0) rotate(-0.6deg) scale(1);
+        }
+        25% {
+          transform: translate(10px, -14px) rotate(0.45deg) scale(1.035);
+        }
+        50% {
+          transform: translate(-12px, 8px) rotate(-0.35deg) scale(0.98);
+        }
+        75% {
+          transform: translate(8px, 12px) rotate(0.5deg) scale(1.02);
+        }
+      }
+
+      @keyframes neonPlayScale {
+        0%,
+        100% {
+          transform: scale(0.92);
+        }
+        50% {
+          transform: scale(1.06);
+        }
+      }
+
+      @keyframes neonPlayBloom {
+        0%,
+        100% {
+          opacity: 0.55;
+          transform: translateX(0);
+        }
+        50% {
+          opacity: 0.9;
+          transform: translateX(4px);
+        }
+      }
+
+      @keyframes neonPlayRays {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      @keyframes neonPlayDustA {
+        0%,
+        100% {
+          opacity: 0.5;
+          filter: brightness(1);
+        }
+        40% {
+          opacity: 0.95;
+          filter: brightness(1.35) saturate(1.2);
+        }
+        70% {
+          opacity: 0.65;
+          filter: brightness(1.1);
+        }
+      }
+
+      @keyframes neonPlayDustB {
+        0%,
+        100% {
+          opacity: 0.4;
+        }
+        50% {
+          opacity: 0.88;
+        }
+      }
+
+      @keyframes neonPlayLabelGlow {
+        0%,
+        100% {
+          filter: brightness(1) drop-shadow(0 0 14px rgba(34, 211, 238, 0.55));
+        }
+        50% {
+          filter: brightness(1.12) drop-shadow(0 0 22px rgba(56, 189, 248, 0.75))
+            drop-shadow(0 0 36px rgba(250, 250, 255, 0.2));
+        }
+      }
+
+      .overlay.hidden {
+        visibility: hidden;
+        display: none;
+      }
+
+      .overlay:not(.hidden) {
+        pointer-events: auto;
+      }
+
+      .panel {
+        width: min(420px, 92vw);
+        padding: 28px 24px 24px;
+        border-radius: 20px;
+        background: linear-gradient(165deg, rgba(30, 41, 59, 0.88) 0%, rgba(15, 23, 42, 0.92) 100%);
+        border: 1px solid rgba(56, 189, 248, 0.22);
+        box-shadow:
+          0 0 0 1px rgba(167, 139, 250, 0.12),
+          0 24px 60px rgba(0, 0, 0, 0.55),
+          0 0 80px rgba(56, 189, 248, 0.08);
+        text-align: center;
+      }
+
+      .menu-title {
+        font-family: "Orbitron", system-ui, sans-serif;
+        font-weight: 900;
+        font-size: clamp(2rem, 9.5vw, 3.35rem);
+        letter-spacing: 0.18em;
+        line-height: 1.15;
+        margin: 0 0 14px;
+        padding: 0 0 4px;
+        text-transform: none;
+        position: relative;
+        display: block;
+      }
+
+      .menu-title__text {
+        position: relative;
+        z-index: 1;
+        color: #e0f2fe;
+        animation: menuTitleGlow 2.4s ease-in-out infinite alternate;
+      }
+
+      .menu-title-letter {
+        display: inline-block;
+        text-transform: none;
+        transition: color 0.07s ease-out;
+        text-shadow:
+          0 0 8px rgba(56, 189, 248, 0.75),
+          0 0 22px rgba(167, 139, 250, 0.4);
+      }
+
+      @keyframes menuTitleGlow {
+        0% {
+          filter: brightness(1) saturate(1.05);
+          text-shadow:
+            0 0 6px rgba(56, 189, 248, 0.9),
+            0 0 18px rgba(56, 189, 248, 0.55),
+            0 0 36px rgba(167, 139, 250, 0.35);
+        }
+        100% {
+          filter: brightness(1.12) saturate(1.2);
+          text-shadow:
+            0 0 10px rgba(56, 189, 248, 1),
+            0 0 28px rgba(56, 189, 248, 0.75),
+            0 0 52px rgba(167, 139, 250, 0.55),
+            0 0 88px rgba(34, 211, 238, 0.25);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .menu-title__text {
+          animation: none;
+        }
+        .start-title-motion,
+        .start-play-motion {
+          animation: none !important;
+        }
+        .neon-play-wrap {
+          animation: none !important;
+          transform: scale(1);
+        }
+        .neon-play-bloom,
+        .neon-play-rays,
+        .neon-play-dust,
+        .neon-play-dust--b {
+          animation: none !important;
+        }
+        .neon-play-bloom {
+          opacity: 0.45;
+        }
+        .neon-play-dust,
+        .neon-play-dust--b {
+          opacity: 0.35;
+        }
+        .neon-play-label {
+          animation: none !important;
+          filter: drop-shadow(0 0 12px rgba(56, 189, 248, 0.45));
+        }
+        .overlay--win:not(.hidden) .win-overlay-spotlight,
+        .overlay--win:not(.hidden):not(.win-overlay--exiting) .win-overlay-stack {
+          animation: none !important;
+        }
+        .win-overlay-spotlight {
+          opacity: 0.75;
+          transform: translateX(-50%) scale(1);
+        }
+        .win-overlay-stack {
+          opacity: 1;
+          transform: none;
+        }
+        .win-overlay--exiting .win-overlay-stack {
+          transition: none !important;
+        }
+      }
+
+      .panel h1:not(.menu-title) {
+        font-size: clamp(1.75rem, 6vw, 2.25rem);
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        margin-bottom: 8px;
+        background: linear-gradient(90deg, #38bdf8, #a78bfa);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+
+      .overlay--win {
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .win-overlay-spotlight {
+        position: absolute;
+        left: 50%;
+        top: min(8%, 48px);
+        width: min(160vw, 720px);
+        height: min(72vh, 520px);
+        transform: translateX(-50%);
+        pointer-events: none;
+        background:
+          radial-gradient(ellipse 42% 38% at 50% 36%, rgba(255, 255, 255, 0.16) 0%, transparent 58%),
+          radial-gradient(ellipse 55% 48% at 50% 42%, rgba(56, 189, 248, 0.12) 0%, transparent 62%),
+          radial-gradient(ellipse 70% 55% at 50% 48%, rgba(167, 139, 250, 0.09) 0%, transparent 68%);
+        opacity: 0;
+        filter: blur(0.5px);
+      }
+
+      .overlay--win:not(.hidden) .win-overlay-spotlight {
+        animation: winSpotlightIn 0.85s cubic-bezier(0.22, 1, 0.36, 1) forwards,
+          winSpotlightPulse 2.8s ease-in-out 0.85s infinite;
+      }
+
+      @keyframes winSpotlightIn {
+        from {
+          opacity: 0;
+          transform: translateX(-50%) scale(0.55);
+        }
+        to {
+          opacity: 1;
+          transform: translateX(-50%) scale(1);
+        }
+      }
+
+      @keyframes winSpotlightPulse {
+        0%,
+        100% {
+          opacity: 0.88;
+          filter: blur(0.5px);
+        }
+        50% {
+          opacity: 1;
+          filter: blur(1px);
+        }
+      }
+
+      .win-overlay--exiting .win-overlay-spotlight {
+        animation: none;
+        opacity: 0;
+        transition: opacity 0.28s ease;
+      }
+
+      .win-overlay-stack {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        width: min(94vw, 440px);
+        pointer-events: auto;
+        position: relative;
+        z-index: 1;
+        transform-origin: center center;
+      }
+
+      .overlay--win:not(.hidden):not(.win-overlay--exiting) .win-overlay-stack {
+        animation: winStackEnter 0.62s cubic-bezier(0.34, 1.38, 0.2, 1) both;
+      }
+
+      @keyframes winStackEnter {
+        from {
+          opacity: 0;
+          transform: scale(0.74);
+        }
+        to {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+
+      .win-overlay--exiting .win-overlay-stack {
+        animation: none;
+        transition:
+          transform 0.34s cubic-bezier(0.55, 0.05, 0.7, 0.45),
+          opacity 0.3s ease;
+        transform: scale(0.78);
+        opacity: 0;
+      }
+
+      .win-btn-col {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 14px;
+        width: 100%;
+      }
+
+      .neon-pill-btn {
+        appearance: none;
+        border: none;
+        cursor: pointer;
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: min(100%, 300px);
+        padding: 12px 20px;
+        border-radius: 999px;
+        font-family: "Orbitron", system-ui, sans-serif;
+        font-weight: 800;
+        font-size: clamp(0.68rem, 2.6vw, 0.78rem);
+        letter-spacing: 0.18em;
+        font-style: italic;
+        text-transform: uppercase;
+        line-height: 1.2;
+        transform: skewX(-5deg);
+        transition: transform 0.08s ease-out;
+      }
+
+      .neon-pill-btn--cyan {
+        background: linear-gradient(165deg, rgba(15, 23, 42, 0.98) 0%, rgba(2, 6, 23, 0.98) 100%);
+        border: 2px solid rgba(56, 189, 248, 0.85);
+        box-shadow:
+          0 0 22px rgba(34, 211, 238, 0.35),
+          inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      }
+
+      .neon-pill-btn--cyan .neon-pill-btn__label {
+        background: linear-gradient(180deg, #e0f2fe 0%, #38bdf8 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        -webkit-text-stroke: 0.85px rgba(15, 23, 42, 0.9);
+        text-shadow: 0 0 14px rgba(34, 211, 238, 0.5);
+      }
+
+      .neon-pill-btn--slate {
+        background: linear-gradient(165deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.98) 100%);
+        border: 2px solid rgba(100, 116, 139, 0.55);
+        box-shadow: 0 0 18px rgba(15, 23, 42, 0.6);
+      }
+
+      .neon-pill-btn--slate .neon-pill-btn__label {
+        color: #e2e8f0;
+        -webkit-text-stroke: 0.65px rgba(15, 23, 42, 0.85);
+        text-shadow:
+          0 0 10px rgba(56, 189, 248, 0.25),
+          0 0 20px rgba(148, 163, 184, 0.2);
+      }
+
+      .neon-pill-btn:active {
+        transform: skewX(-5deg) scale(0.94);
+      }
+
+      .win-overlay--exiting .neon-pill-btn {
+        pointer-events: none;
+      }
+
+      .win-banner-img {
+        display: block;
+        width: min(100%, 380px);
+        max-height: min(42vh, 320px);
+        height: auto;
+        object-fit: contain;
+        margin: 0 auto 16px;
+        filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.45));
+      }
+
+      .win-banner-img.hidden {
+        display: none;
+      }
+
+      .panel p {
+        color: #94a3b8;
+        font-size: 0.95rem;
+        line-height: 1.5;
+        margin-bottom: 20px;
+      }
+
+      .btn-row {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .btn {
+        appearance: none;
+        border: none;
+        border-radius: 14px;
+        padding: 14px 20px;
+        font-family: inherit;
+        font-weight: 700;
+        font-size: 1rem;
+        cursor: pointer;
+        color: #0f172a;
+        background: linear-gradient(180deg, #7dd3fc 0%, #38bdf8 100%);
+        box-shadow: 0 8px 24px rgba(56, 189, 248, 0.35);
+      }
+
+      .btn.secondary {
+        background: rgba(51, 65, 85, 0.9);
+        color: #e2e8f0;
+        box-shadow: none;
+        border: 1px solid rgba(148, 163, 184, 0.3);
+      }
+
+      .btn:active {
+        transform: translateY(1px);
+      }
+
+      #settingsModal {
+        position: absolute;
+        inset: 0;
+        z-index: 30;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+        opacity: 0;
+        background: rgba(0, 0, 0, 0.55);
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+        transition: opacity 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+      }
+
+      #settingsModal.settings-modal--open {
+        pointer-events: auto;
+        opacity: 1;
+      }
+
+      .settings-panel {
+        width: min(380px, 90vw);
+        padding: 24px;
+        border-radius: 18px;
+        background: #0f172a;
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+        transform: scale(0.9);
+        opacity: 0.92;
+        transform-origin: center center;
+        transition:
+          transform 0.34s cubic-bezier(0.34, 1.25, 0.2, 1),
+          opacity 0.26s ease;
+      }
+
+      #settingsModal.settings-modal--open .settings-panel {
+        transform: scale(1);
+        opacity: 1;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        #settingsModal,
+        .settings-panel {
+          transition-duration: 0.01ms !important;
+        }
+      }
+
+      .settings-panel h2 {
+        font-size: 1.25rem;
+        margin-bottom: 18px;
+        text-align: center;
+      }
+
+      .toggle-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 0;
+        border-bottom: 1px solid rgba(51, 65, 85, 0.8);
+        font-weight: 600;
+      }
+
+      .toggle-row:last-of-type {
+        border-bottom: none;
+      }
+
+      .toggle-row label {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .toggle-row input[type="checkbox"] {
+        width: 22px;
+        height: 22px;
+        accent-color: #38bdf8;
+      }
+
+      .settings-close {
+        margin-top: 18px;
+        width: 100%;
+      }
+
+      .icon-inline {
+        width: 22px;
+        height: 22px;
+        display: inline-block;
+        vertical-align: middle;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <canvas id="menuCanvas" class="menu-canvas" aria-hidden="true"></canvas>
+      <canvas id="gameCanvas" class="game-canvas during-attract" aria-label="Breakout two-player playfield"></canvas>
+
+      <div id="versusHud" class="versus-hud hidden" aria-live="polite">
+        <div class="versus-hud__stat versus-hud__stat--p1" id="versusHudP1"></div>
+        <div class="versus-hud__arena" id="versusHudArena"></div>
+        <div class="versus-hud__stat versus-hud__stat--p2" id="versusHudP2"></div>
+      </div>
+
+      <button type="button" id="settings-btn" class="hidden" aria-label="Settings">
+        <svg class="settings-cog-svg" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"
+            stroke="currentColor"
+            stroke-width="1.8"
+          />
+          <path
+            d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 0 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 0 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1-1.55V3a2 2 0 0 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9c0 .69.41 1.32 1.04 1.59.21.09.44.14.68.14H21a2 2 0 0 1 0 4h-.09c-.53 0-1.04.21-1.41.59-.37.37-.59.88-.59 1.41Z"
+            stroke="currentColor"
+            stroke-width="1.2"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </button>
+
+      <div id="startOverlay" class="overlay start-screen">
+        <div class="start-screen-center">
+          <div class="start-title-motion">
+            <h1 class="menu-title">
+              <span class="menu-title__text" id="menuTitleLetters" aria-label="Breakout"></span>
+            </h1>
+          </div>
+          <div class="start-play-motion">
+            <button type="button" class="start-play-btn" id="btnPlay" aria-label="Play">
+              <span class="neon-play-wrap">
+                <span class="neon-play-bloom" aria-hidden="true"></span>
+                <span class="neon-play-pill">
+                  <span class="neon-play-rays" aria-hidden="true"></span>
+                  <span class="neon-play-dust" aria-hidden="true"></span>
+                  <span class="neon-play-label">PLAY</span>
+                  <span class="neon-play-dust neon-play-dust--b" aria-hidden="true"></span>
+                </span>
+              </span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div id="levelOverlay" class="overlay hidden">
+        <div class="panel">
+          <h1>Level clear</h1>
+          <p id="levelOverlayText">Nice work.</p>
+          <div class="btn-row">
+            <button type="button" class="btn" id="btnNextLevel">Next level</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="gameOverOverlay" class="overlay hidden">
+        <div class="panel">
+          <h1>Game over</h1>
+          <p id="gameOverScore">Score: 0</p>
+          <div class="btn-row">
+            <button type="button" class="btn" id="btnRestart">Play again</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="winOverlay" class="overlay overlay--win hidden">
+        <div class="win-overlay-spotlight" aria-hidden="true"></div>
+        <div class="win-overlay-stack">
+          <img id="winBannerImg" class="win-banner-img hidden" alt="" />
+          <div class="win-btn-col">
+            <button type="button" class="neon-pill-btn neon-pill-btn--cyan" id="btnWinRestart" aria-label="Rematch">
+              <span class="neon-pill-btn__label">Rematch</span>
+            </button>
+            <button type="button" class="neon-pill-btn neon-pill-btn--slate" id="btnWinNextArena" aria-label="Next arena">
+              <span class="neon-pill-btn__label">Next arena</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div id="settingsModal" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle" aria-hidden="true">
+        <div class="settings-panel">
+          <h2 id="settingsModalTitle">Settings</h2>
+          <div class="toggle-row">
+            <label for="toggleMusic">
+              <svg class="icon-inline" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M9 18V6l12-2v16" stroke="currentColor" stroke-width="1.6" />
+                <path d="M6 14h3" stroke="currentColor" stroke-width="1.6" />
+              </svg>
+              Music
+            </label>
+            <input type="checkbox" id="toggleMusic" checked />
+          </div>
+          <div class="toggle-row">
+            <label for="toggleFx">
+              <svg class="icon-inline" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M11 5L6 9H2v6h4l5 4V5z" stroke="currentColor" stroke-width="1.6" />
+                <path d="M15.5 8.5a5 5 0 0 1 0 7" stroke="currentColor" stroke-width="1.6" />
+              </svg>
+              Sound FX
+            </label>
+            <input type="checkbox" id="toggleFx" checked />
+          </div>
+          <div class="toggle-row">
+            <label for="toggleHaptics">
+              <svg class="icon-inline" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M8 10v4M12 8v8M16 6v12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+              </svg>
+              Haptics
+            </label>
+            <input type="checkbox" id="toggleHaptics" checked />
+          </div>
+          <button type="button" class="btn secondary settings-close" id="btnCloseSettings">Close</button>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

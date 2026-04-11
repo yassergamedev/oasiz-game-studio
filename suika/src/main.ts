@@ -225,10 +225,24 @@ function bootstrapGame(): void {
   const GO_FOG_MS = 720;
   const GO_PANEL_MS = 1950;
   const GO_MAX_ZOOM = 1.4;
+  const MERGE_CELEBRATION_DEBOUNCE_MS = 85;
   type GameOverPhase = "none" | "dramatic" | "panel";
   let gameOverPhase: GameOverPhase = "none";
   let gameOverDramaStartedAt = 0;
   let gameOverPanelRevealPending = false;
+  let mergeCelebrationTimer = 0;
+  let pendingMergeCelebration:
+    | {
+        payload: {
+          x: number;
+          y: number;
+          newTier: number;
+          prevTier: number;
+          scoreAdd: number;
+        };
+        tier: ReturnType<typeof mergeWordTier>;
+      }
+    | null = null;
   function smoothstep01(t: number): number {
     const x = Math.max(0, Math.min(1, t));
     return x * x * (3 - 2 * x);
@@ -244,6 +258,11 @@ function bootstrapGame(): void {
   let frameClockMs = performance.now();
   /** requestAnimationFrame id — cancel + reschedule on visibility so the loop survives app resume. */
   let renderRafId = 0;
+  /** Cache DOM style strings to avoid redundant per-frame style writes (prevents zoom/jank stutter). */
+  let mergeRootLastTransform = "";
+  let mergeRootLastOrigin = "";
+  /** Avoid forced reflow (`offsetWidth`) when restarting CSS animations during gameplay events. */
+  const pendingAnimRestartFrames = new Map<string, number[]>();
   /** When > 0, cup net scales up from this time (gameplay intro). */
   let netIntroStartedAtMs = 0;
   let hudIntroClearTimer = 0;
@@ -256,6 +275,24 @@ function bootstrapGame(): void {
     applyToggleUi(toggleFx, settings.fx);
     applyToggleUi(toggleHaptics, settings.haptics);
     audio.applySettings(settings.music, settings.fx);
+  }
+  function restartCssAnimationClass(el: HTMLElement, className: string): void {
+    const key = (el.id || "anon") + "::" + className;
+    const pending = pendingAnimRestartFrames.get(key);
+    if (pending) {
+      for (const id of pending) {
+        cancelAnimationFrame(id);
+      }
+    }
+    el.classList.remove(className);
+    const r1 = requestAnimationFrame(() => {
+      const r2 = requestAnimationFrame(() => {
+        el.classList.add(className);
+        pendingAnimRestartFrames.delete(key);
+      });
+      pendingAnimRestartFrames.set(key, [r1, r2]);
+    });
+    pendingAnimRestartFrames.set(key, [r1]);
   }
   function calculateLayout(): void {
     const w = window.innerWidth;
@@ -425,21 +462,41 @@ function bootstrapGame(): void {
         const focus = game.getGameOverFocus();
         const ox = focus ? focus.cx : layout.cupX + layout.cupW * 0.5;
         const oy = focus ? focus.cy : layout.dangerY + (layout.cupY + layout.cupH - layout.dangerY) * 0.35;
-        mergeJuiceRoot.style.transformOrigin = ox.toFixed(1) + "px " + oy.toFixed(1) + "px";
-        mergeJuiceRoot.style.transform = "scale(" + zs.toFixed(4) + ")";
+        const nextOrigin = ox.toFixed(1) + "px " + oy.toFixed(1) + "px";
+        const nextTransform = "scale(" + zs.toFixed(4) + ")";
+        if (nextOrigin !== mergeRootLastOrigin) {
+          mergeJuiceRoot.style.transformOrigin = nextOrigin;
+          mergeRootLastOrigin = nextOrigin;
+        }
+        if (nextTransform !== mergeRootLastTransform) {
+          mergeJuiceRoot.style.transform = nextTransform;
+          mergeRootLastTransform = nextTransform;
+        }
       } else {
         const juiceOn = !reduceMotion && game !== null && playing && !game.isGameOver();
         if (juiceOn) {
           const sh = mergeJuice.getShakePx();
-          const sc = mergeJuice.getScale() * mergeJuice.getNetZoomFactor();
           const ox = layout.cupX + layout.cupW * 0.5;
           const oy = layout.dangerY + (layout.cupY + layout.cupH - layout.dangerY) * 0.4;
-          mergeJuiceRoot.style.transformOrigin = ox.toFixed(1) + "px " + oy.toFixed(1) + "px";
-          mergeJuiceRoot.style.transform =
-            "translate(" + sh.x.toFixed(2) + "px," + sh.y.toFixed(2) + "px) scale(" + sc.toFixed(4) + ")";
+          const nextOrigin = ox.toFixed(1) + "px " + oy.toFixed(1) + "px";
+          const nextTransform = "translate(" + sh.x.toFixed(2) + "px," + sh.y.toFixed(2) + "px)";
+          if (nextOrigin !== mergeRootLastOrigin) {
+            mergeJuiceRoot.style.transformOrigin = nextOrigin;
+            mergeRootLastOrigin = nextOrigin;
+          }
+          if (nextTransform !== mergeRootLastTransform) {
+            mergeJuiceRoot.style.transform = nextTransform;
+            mergeRootLastTransform = nextTransform;
+          }
         } else {
-          mergeJuiceRoot.style.transformOrigin = "";
-          mergeJuiceRoot.style.transform = "";
+          if (mergeRootLastOrigin !== "") {
+            mergeJuiceRoot.style.transformOrigin = "";
+            mergeRootLastOrigin = "";
+          }
+          if (mergeRootLastTransform !== "") {
+            mergeJuiceRoot.style.transform = "";
+            mergeRootLastTransform = "";
+          }
         }
       }
     }
@@ -479,8 +536,14 @@ function bootstrapGame(): void {
     hud.classList.add("hidden");
     settingsBtn.classList.add("hidden");
     if (mergeJuiceRoot) {
-      mergeJuiceRoot.style.transformOrigin = "";
-      mergeJuiceRoot.style.transform = "";
+      if (mergeRootLastOrigin !== "") {
+        mergeJuiceRoot.style.transformOrigin = "";
+        mergeRootLastOrigin = "";
+      }
+      if (mergeRootLastTransform !== "") {
+        mergeJuiceRoot.style.transform = "";
+        mergeRootLastTransform = "";
+      }
     }
     console.log("[revealGameOverPanel]", "shown");
   }
@@ -500,6 +563,16 @@ function bootstrapGame(): void {
       gameOverEl.classList.add("game-over--reveal");
       hud.classList.add("hidden");
       settingsBtn.classList.add("hidden");
+      if (mergeJuiceRoot) {
+        if (mergeRootLastOrigin !== "") {
+          mergeJuiceRoot.style.transformOrigin = "";
+          mergeRootLastOrigin = "";
+        }
+        if (mergeRootLastTransform !== "") {
+          mergeJuiceRoot.style.transform = "";
+          mergeRootLastTransform = "";
+        }
+      }
       console.log("[beginGameOverDrama]", "reduced motion, panel only");
       return;
     }
@@ -516,9 +589,7 @@ function bootstrapGame(): void {
     nextOrb.style.backgroundPosition = "center";
     nextOrb.style.backgroundRepeat = "no-repeat";
     if (reduceMotion) return;
-    nextOrb.classList.remove("next-orb--enter");
-    void nextOrb.offsetWidth;
-    nextOrb.classList.add("next-orb--enter");
+    restartCssAnimationClass(nextOrb, "next-orb--enter");
     const clearEnter = (): void => {
       nextOrb.classList.remove("next-orb--enter");
     };
@@ -561,6 +632,50 @@ function bootstrapGame(): void {
       evolutionChain.appendChild(node);
     }
     console.log("[rebuildEvolutionHud]", String(chain.length), "steps");
+  }
+  function flushPendingMergeCelebration(): void {
+    if (!pendingMergeCelebration) return;
+    const { payload: p, tier } = pendingMergeCelebration;
+    pendingMergeCelebration = null;
+    mergeCelebrationTimer = 0;
+
+    if (!reduceMotion) {
+      mergeJuice.burstVisualsFromCurrentCombo();
+      if (tier === "inferno") {
+        mergeJuice.triggerInfernoPulse();
+        mergeJuice.triggerNetZoom(1.48);
+      } else if (tier === "good") {
+        mergeJuice.triggerNetZoom(1);
+      }
+    }
+
+    audio.playMerge(mergeJuice.getCombo());
+    if (tier === "inferno") {
+      triggerHaptic("success", settings);
+    } else if (tier === "good") {
+      triggerHaptic("medium", settings);
+    } else {
+      triggerHaptic("light", settings);
+    }
+
+    mergeFanfare.spawn(
+      p,
+      layout.w,
+      layout.h,
+      {
+        cupX: layout.cupX,
+        cupY: layout.cupY,
+        cupW: layout.cupW,
+        cupH: layout.cupH,
+      },
+      tier,
+      reduceMotion,
+    );
+
+    restartCssAnimationClass(evolutionChain, "hud-evolution-scroll--merge-pulse");
+    window.setTimeout(() => {
+      evolutionChain.classList.remove("hud-evolution-scroll--merge-pulse");
+    }, 700);
   }
   const GAMEPLAY_SLIDE_MS = 520;
   const NET_INTRO_MS = 420;
@@ -640,8 +755,13 @@ function bootstrapGame(): void {
     canvasPointerId = null;
     window.clearTimeout(hudIntroClearTimer);
     hudIntroClearTimer = 0;
+    window.clearTimeout(mergeCelebrationTimer);
+    mergeCelebrationTimer = 0;
+    pendingMergeCelebration = null;
     hud.classList.remove("hud--intro-pop");
     settingsBtn.classList.remove("hud--intro-pop");
+    /* Always leave game-over audio mode before a new run. */
+    audio.exitGameOverMusic();
     triggerHaptic("light", settings);
     noAssetWarning.classList.add("hidden");
     calculateLayout();
@@ -655,43 +775,14 @@ function bootstrapGame(): void {
         onGameOver: (s) => beginGameOverDrama(s),
         getSettings: () => ({ haptics: settings.haptics }),
         onMerge: (p) => {
-          mergeJuice.trigger(!reduceMotion);
-          audio.playMerge(mergeJuice.getCombo());
+          mergeJuice.trigger(false);
           const tier = mergeWordTier(p.scoreAdd, p.newTier);
-          if (tier === "inferno") {
-            triggerHaptic("success", settings);
-          } else if (tier === "good") {
-            triggerHaptic("medium", settings);
-          } else {
-            triggerHaptic("light", settings);
-          }
-          mergeFanfare.spawn(
-            p,
-            layout.w,
-            layout.h,
-            {
-              cupX: layout.cupX,
-              cupY: layout.cupY,
-              cupW: layout.cupW,
-              cupH: layout.cupH,
-            },
-            tier,
-            reduceMotion,
+          pendingMergeCelebration = { payload: p, tier };
+          window.clearTimeout(mergeCelebrationTimer);
+          mergeCelebrationTimer = window.setTimeout(
+            flushPendingMergeCelebration,
+            MERGE_CELEBRATION_DEBOUNCE_MS,
           );
-          if (!reduceMotion) {
-            if (tier === "inferno") {
-              mergeJuice.triggerInfernoPulse();
-              mergeJuice.triggerNetZoom(1.48);
-            } else if (tier === "good") {
-              mergeJuice.triggerNetZoom(1);
-            }
-          }
-          evolutionChain.classList.remove("hud-evolution-scroll--merge-pulse");
-          void evolutionChain.offsetWidth;
-          evolutionChain.classList.add("hud-evolution-scroll--merge-pulse");
-          window.setTimeout(() => {
-            evolutionChain.classList.remove("hud-evolution-scroll--merge-pulse");
-          }, 700);
         },
         onDrop: () => audio.playDrop(),
         onWallBounce: (sp) => {

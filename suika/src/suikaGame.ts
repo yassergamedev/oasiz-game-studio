@@ -94,8 +94,13 @@ export class SuikaGame {
   private lastWallBounceSfxAt = 0;
   private collisionHandler: (e: Matter.IEventCollision<Matter.Engine>) => void;
   private afterUpdateHandler: () => void;
-  /** iOS WebKit: avoid fromVertices polygons, tighter solver, no sleeping (stack glitches). */
+  /** iOS WebKit: tighter solver, no sleeping (stack glitches). */
   private readonly iosPhysicsHost: boolean;
+  /**
+   * Filled once per frame at end of stepPhysics() — post-step ball list for draw.
+   * update() reads the same array without rescanning; it sees previous frame's post-step state (= start of this frame).
+   */
+  private readonly ballBodiesScratch: Matter.Body[] = [];
 
   constructor(
     layout: GameLayout,
@@ -127,7 +132,7 @@ export class SuikaGame {
       constraintIterations: this.iosPhysicsHost ? 4 : 2,
     });
     if (this.iosPhysicsHost) {
-      console.log("[SuikaGame]", "iOS-style host: stable solver, no sleep, circle colliders only");
+      console.log("[SuikaGame]", "iOS-style host: stable solver, no sleep");
     }
     this.runner = Matter.Runner.create();
     /**
@@ -192,7 +197,19 @@ export class SuikaGame {
     this.pointerActive = false;
     this.previewAnimStartAt = 0;
     this.rollNextTiers();
+    this.ballBodiesScratch.length = 0;
     this.onScoreChange(0);
+  }
+
+  /** Call only after Engine.update — one Composite.allBodies pass per frame. */
+  private refreshBallBodiesAfterStep(): void {
+    const out = this.ballBodiesScratch;
+    out.length = 0;
+    for (const body of Matter.Composite.allBodies(this.engine.world)) {
+      if (body.label === BALL_LABEL) {
+        out.push(body);
+      }
+    }
   }
 
   private buildWalls(): void {
@@ -374,9 +391,6 @@ export class SuikaGame {
     const displayRadius = tierRadius(this.layout, tier, this.tierIds.length);
     const displayScale = (2 * displayRadius) / minSide;
     let bounds: BallColliderConfig = getBoundsForId(assetId, this.boundsMap);
-    if (this.iosPhysicsHost && isPolygonConfig(bounds)) {
-      bounds = { ...DEFAULT_CIRCLE };
-    }
     if (isCircleConfig(bounds)) {
       bounds = sanitizeCircleConfig(bounds);
     }
@@ -534,9 +548,10 @@ export class SuikaGame {
   update(_dt: number): void {
     if (this.gameOver) return;
 
+    const balls = this.ballBodiesScratch;
     let anyMoving = false;
-    for (const body of Matter.Composite.allBodies(this.engine.world)) {
-      if (body.label !== BALL_LABEL) continue;
+    for (let i = 0; i < balls.length; i++) {
+      const body = balls[i];
       const s = Math.hypot(body.velocity.x, body.velocity.y);
       const w = Math.abs(body.angularVelocity);
       if (s > 0.1 || w > 0.022) anyMoving = true;
@@ -545,8 +560,9 @@ export class SuikaGame {
       this.pendingDrop = true;
     }
 
-    for (const body of Matter.Composite.allBodies(this.engine.world)) {
-      if (body.label !== BALL_LABEL) continue;
+    const now = performance.now();
+    for (let i = 0; i < balls.length; i++) {
+      const body = balls[i];
       const data = this.ballData.get(body.id);
       if (!data) continue;
 
@@ -558,7 +574,7 @@ export class SuikaGame {
           data.canLoseOnDanger = true;
         } else if (s > 0.2) {
           data.canLoseOnDanger = true;
-        } else if (performance.now() - data.spawnedAt > 3200) {
+        } else if (now - data.spawnedAt > 3200) {
           data.canLoseOnDanger = true;
         } else {
           continue;
@@ -686,7 +702,7 @@ export class SuikaGame {
     reducedMotion = false,
   ): void {
     this.layout = layout;
-    const bodies = Matter.Composite.allBodies(this.engine.world);
+    const bodies = this.ballBodiesScratch;
     const mergeHintTargetId =
       !this.gameOver && this.pendingDrop && this.pointerActive
         ? this.findSimilarBallIdForDropHint(bodies, this.currentTier, this.dropperX)
@@ -756,9 +772,9 @@ export class SuikaGame {
   stepPhysics(): void {
     if (this.gameOver) return;
     const dt = 1000 / 60;
-    /* Match prior feel: Runner + this hook used to advance ~2x per display frame. */
     Matter.Engine.update(this.engine, dt);
     Matter.Engine.update(this.engine, dt);
+    this.refreshBallBodiesAfterStep();
   }
 }
 
