@@ -1,3 +1,5 @@
+import { isMinimalBreakoutVisual } from "./breakoutMinimalStyle";
+
 /**
  * Smooth camera-style emphasis when the ball is stuck to a player's paddle (serve / turnover).
  * Eases between P1 (bottom) and P2 (top) with subtle scale, a one-shot shake on turnover,
@@ -103,7 +105,11 @@ export class TurnOwnerFx {
     ctx.rect(wallLeft, zoneTop, wallW, zoneH);
     ctx.clip();
 
-    const peak = isP1 ? "rgba(186, 230, 253, 0.55)" : "rgba(221, 214, 254, 0.52)";
+    const peak = isMinimalBreakoutVisual()
+      ? "rgba(255, 255, 255, 0.42)"
+      : isP1
+        ? "rgba(186, 230, 253, 0.55)"
+        : "rgba(221, 214, 254, 0.52)";
     const g = ctx.createLinearGradient(
       cx - nx * band,
       cy - ny * band,
@@ -131,7 +137,14 @@ export class TurnOwnerFx {
       cy2 + ny * band2,
     );
     g2.addColorStop(0, "rgba(255, 255, 255, 0)");
-    g2.addColorStop(0.5, isP1 ? "rgba(56, 189, 248, 0.45)" : "rgba(167, 139, 250, 0.45)");
+    g2.addColorStop(
+      0.5,
+      isMinimalBreakoutVisual()
+        ? "rgba(239, 68, 68, 0.38)"
+        : isP1
+          ? "rgba(38, 38, 42, 0.55)"
+          : "rgba(239, 68, 68, 0.48)",
+    );
     g2.addColorStop(1, "rgba(255, 255, 255, 0)");
 
     ctx.globalAlpha = 0.38 * a;

@@ -140,13 +140,15 @@
       }
 
       .versus-hud__stat--p1 {
-        color: rgba(125, 211, 252, 0.95);
+        color: rgba(245, 245, 245, 0.96);
         text-align: left;
       }
 
       .versus-hud__stat--p2 {
-        color: rgba(196, 181, 253, 0.95);
+        color: rgba(248, 113, 113, 0.98);
         text-align: right;
+        transform: rotate(180deg);
+        transform-origin: center center;
       }
 
       .versus-hud__arena {
@@ -543,13 +545,48 @@
           animation: none !important;
           filter: drop-shadow(0 0 12px rgba(56, 189, 248, 0.45));
         }
-        .overlay--win:not(.hidden) .win-overlay-spotlight,
+        /* Subtle motion only (no scale bounce / heavy blur pulse) */
+        .overlay--win:not(.hidden) .win-overlay-spotlight {
+          animation: winSpotlightInReduced 0.45s ease forwards,
+            winSpotlightPulseReduced 3s ease-in-out 0.45s infinite !important;
+        }
         .overlay--win:not(.hidden):not(.win-overlay--exiting) .win-overlay-stack {
-          animation: none !important;
+          animation: winStackEnterReduced 0.4s ease both !important;
+        }
+        @keyframes winSpotlightInReduced {
+          from {
+            opacity: 0;
+            transform: translate(-50%, -50%) scale(1);
+          }
+          to {
+            opacity: 0.72;
+            transform: translate(-50%, -50%) scale(1);
+          }
+        }
+        @keyframes winSpotlightPulseReduced {
+          0%,
+          100% {
+            opacity: 0.68;
+            transform: translate(-50%, -50%) scale(1);
+          }
+          50% {
+            opacity: 0.82;
+            transform: translate(-50%, -50%) scale(1);
+          }
+        }
+        @keyframes winStackEnterReduced {
+          from {
+            opacity: 0;
+            transform: scale(1);
+          }
+          to {
+            opacity: 1;
+            transform: scale(1);
+          }
         }
         .win-overlay-spotlight {
-          opacity: 0.75;
-          transform: translateX(-50%) scale(1);
+          opacity: 0.72;
+          transform: translate(-50%, -50%) scale(1);
         }
         .win-overlay-stack {
           opacity: 1;
@@ -571,21 +608,24 @@
         color: transparent;
       }
 
-      .overlay--win {
+      /* Keep position:absolute from .overlay — do not set position:relative here or the
+         overlay collapses in normal flow and the win UI sticks to the top of #root. */
+      .overlay.overlay--win {
+        position: absolute;
+        inset: 0;
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        position: relative;
         overflow: hidden;
       }
 
       .win-overlay-spotlight {
         position: absolute;
         left: 50%;
-        top: min(8%, 48px);
+        top: 50%;
         width: min(160vw, 720px);
         height: min(72vh, 520px);
-        transform: translateX(-50%);
+        transform: translate(-50%, -50%);
         pointer-events: none;
         background:
           radial-gradient(ellipse 42% 38% at 50% 36%, rgba(255, 255, 255, 0.16) 0%, transparent 58%),
@@ -603,11 +643,11 @@
       @keyframes winSpotlightIn {
         from {
           opacity: 0;
-          transform: translateX(-50%) scale(0.55);
+          transform: translate(-50%, -50%) scale(0.55);
         }
         to {
           opacity: 1;
-          transform: translateX(-50%) scale(1);
+          transform: translate(-50%, -50%) scale(1);
         }
       }
 
@@ -616,10 +656,12 @@
         100% {
           opacity: 0.88;
           filter: blur(0.5px);
+          transform: translate(-50%, -50%) scale(1);
         }
         50% {
           opacity: 1;
           filter: blur(1px);
+          transform: translate(-50%, -50%) scale(1);
         }
       }
 
@@ -733,17 +775,24 @@
         pointer-events: none;
       }
 
-      .win-banner-img {
-        display: block;
-        width: min(100%, 380px);
-        max-height: min(42vh, 320px);
-        height: auto;
-        object-fit: contain;
-        margin: 0 auto 16px;
-        filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.45));
+      .win-banner-title {
+        font-family: "Orbitron", system-ui, sans-serif;
+        font-weight: 900;
+        font-size: clamp(1.35rem, 5.2vw, 2.1rem);
+        letter-spacing: 0.14em;
+        line-height: 1.15;
+        text-align: center;
+        text-transform: uppercase;
+        color: #f8fafc;
+        text-shadow:
+          0 0 20px rgba(56, 189, 248, 0.35),
+          0 2px 14px rgba(0, 0, 0, 0.55);
+        margin: 0 auto 20px;
+        padding: 0 12px;
+        max-width: min(100%, 420px);
       }
 
-      .win-banner-img.hidden {
+      .win-banner-title.hidden {
         display: none;
       }
 
@@ -875,6 +924,220 @@
         display: inline-block;
         vertical-align: middle;
       }
+
+      /* Minimal B/W + red (mockup) — toggled via `minimal-breakout` on <html> from main.ts */
+      html.minimal-breakout body {
+        background: #0a0a0a;
+        color: #fafafa;
+      }
+
+      html.minimal-breakout .overlay.start-screen {
+        background: rgba(6, 6, 6, 0.55);
+      }
+
+      html.minimal-breakout .menu-title__text {
+        color: #fafafa !important;
+        text-shadow: 0 0 14px rgba(255, 255, 255, 0.12) !important;
+      }
+
+      html.minimal-breakout .menu-title-letter {
+        filter: saturate(0.35) brightness(1.12);
+        text-shadow: 0 0 8px rgba(255, 255, 255, 0.18) !important;
+      }
+
+      html.minimal-breakout .neon-play-pill {
+        background: linear-gradient(165deg, #171717 0%, #0a0a0a 55%, #141414 100%);
+        border: 2px solid rgba(255, 255, 255, 0.88);
+        box-shadow:
+          0 0 0 1px rgba(255, 255, 255, 0.1),
+          0 0 32px rgba(239, 68, 68, 0.28),
+          inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      }
+
+      html.minimal-breakout .neon-play-label {
+        text-shadow:
+          0 0 14px rgba(239, 68, 68, 0.45),
+          0 1px 2px rgba(0, 0, 0, 0.95);
+        animation: none !important;
+      }
+
+      html.minimal-breakout .neon-play-bloom {
+        background: radial-gradient(ellipse at center, rgba(239, 68, 68, 0.18) 0%, transparent 72%);
+      }
+
+      html.minimal-breakout .neon-play-rays {
+        opacity: 0.08;
+        background: repeating-conic-gradient(
+          from 0deg at 50% 50%,
+          rgba(255, 255, 255, 0.35) 0deg 4deg,
+          transparent 4deg 11deg
+        );
+      }
+
+      html.minimal-breakout #settings-btn .settings-cog-svg {
+        color: #e5e5e5;
+        filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.12));
+      }
+
+      html.minimal-breakout .versus-hud__stat--p1 {
+        color: rgba(245, 245, 245, 0.95);
+        text-shadow: 0 1px 8px rgba(0, 0, 0, 0.75);
+      }
+
+      html.minimal-breakout .versus-hud__stat--p2 {
+        color: rgba(252, 165, 165, 0.98);
+        text-shadow: 0 1px 8px rgba(0, 0, 0, 0.65);
+      }
+
+      html.minimal-breakout .settings-panel {
+        background: #111111;
+        border-color: rgba(255, 255, 255, 0.2);
+      }
+
+      html.minimal-breakout .toggle-row input[type="checkbox"] {
+        accent-color: #ef4444;
+      }
+
+      html.minimal-breakout .win-banner-title {
+        color: #fafafa;
+        text-shadow:
+          0 0 20px rgba(239, 68, 68, 0.32),
+          0 2px 14px rgba(0, 0, 0, 0.75);
+        letter-spacing: 0.16em;
+      }
+
+      /* Minimal theme: light appearance */
+      html.minimal-breakout.minimal-breakout--light body {
+        background: #f4f4f5;
+        color: #0a0a0a;
+      }
+
+      html.minimal-breakout.minimal-breakout--light .overlay.start-screen {
+        background: rgba(250, 250, 250, 0.78);
+      }
+
+      html.minimal-breakout.minimal-breakout--light .menu-title__text {
+        color: #0a0a0a !important;
+        text-shadow: 0 1px 0 rgba(255, 255, 255, 0.95) !important;
+      }
+
+      html.minimal-breakout.minimal-breakout--light .menu-title-letter {
+        filter: saturate(0.22) brightness(0.9);
+        text-shadow: 0 0 10px rgba(0, 0, 0, 0.06) !important;
+      }
+
+      html.minimal-breakout.minimal-breakout--light .neon-play-pill {
+        background: linear-gradient(165deg, #ffffff 0%, #e8e8e8 52%, #f5f5f5 100%);
+        border: 2px solid rgba(10, 10, 10, 0.5);
+        box-shadow:
+          0 0 0 1px rgba(10, 10, 10, 0.06),
+          0 0 26px rgba(220, 38, 38, 0.2),
+          inset 0 1px 0 rgba(255, 255, 255, 0.95);
+      }
+
+      html.minimal-breakout.minimal-breakout--light .neon-play-label {
+        color: #0a0a0a;
+        text-shadow:
+          0 0 14px rgba(220, 38, 38, 0.2),
+          0 1px 0 rgba(255, 255, 255, 0.9);
+      }
+
+      html.minimal-breakout.minimal-breakout--light .neon-play-bloom {
+        background: radial-gradient(ellipse at center, rgba(220, 38, 38, 0.12) 0%, transparent 72%);
+      }
+
+      html.minimal-breakout.minimal-breakout--light .neon-play-rays {
+        opacity: 0.06;
+        background: repeating-conic-gradient(
+          from 0deg at 50% 50%,
+          rgba(10, 10, 10, 0.22) 0deg 4deg,
+          transparent 4deg 11deg
+        );
+      }
+
+      html.minimal-breakout.minimal-breakout--light #settings-btn .settings-cog-svg {
+        color: #262626;
+        filter: drop-shadow(0 0 4px rgba(0, 0, 0, 0.06));
+      }
+
+      html.minimal-breakout.minimal-breakout--light .versus-hud__stat--p1 {
+        color: rgba(10, 10, 10, 0.92);
+        text-shadow: 0 1px 6px rgba(255, 255, 255, 0.7);
+      }
+
+      html.minimal-breakout.minimal-breakout--light .versus-hud__stat--p2 {
+        color: rgba(185, 28, 28, 0.95);
+        text-shadow: 0 1px 6px rgba(255, 255, 255, 0.65);
+      }
+
+      html.minimal-breakout.minimal-breakout--light .settings-panel {
+        background: #fafafa;
+        border-color: rgba(10, 10, 10, 0.12);
+        color: #0a0a0a;
+      }
+
+      html.minimal-breakout.minimal-breakout--light .settings-panel h2 {
+        color: #0a0a0a;
+      }
+
+      html.minimal-breakout.minimal-breakout--light .toggle-row {
+        border-bottom-color: rgba(0, 0, 0, 0.1);
+      }
+
+      html.minimal-breakout.minimal-breakout--light #settingsModal {
+        background: rgba(255, 255, 255, 0.58);
+      }
+
+      html.minimal-breakout.minimal-breakout--light .overlay--win {
+        background: rgba(248, 250, 252, 0.88);
+      }
+
+      html.minimal-breakout.minimal-breakout--light .win-banner-title {
+        color: #0a0a0a;
+        text-shadow:
+          0 0 16px rgba(220, 38, 38, 0.22),
+          0 1px 0 rgba(255, 255, 255, 0.85);
+      }
+
+      html.minimal-breakout.minimal-breakout--light .win-overlay-spotlight {
+        background:
+          radial-gradient(ellipse 42% 38% at 50% 36%, rgba(255, 255, 255, 0.55) 0%, transparent 58%),
+          radial-gradient(ellipse 55% 48% at 50% 42%, rgba(220, 38, 38, 0.08) 0%, transparent 62%),
+          radial-gradient(ellipse 70% 55% at 50% 48%, rgba(10, 10, 10, 0.04) 0%, transparent 68%);
+      }
+
+      html.minimal-breakout.minimal-breakout--light .neon-pill-btn--cyan {
+        background: linear-gradient(165deg, #f5f5f5 0%, #d4d4d4 100%);
+        border: 2px solid rgba(10, 10, 10, 0.35);
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+      }
+
+      html.minimal-breakout.minimal-breakout--light .neon-pill-btn--cyan .neon-pill-btn__label {
+        background: linear-gradient(180deg, #404040 0%, #0a0a0a 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        -webkit-text-stroke: 0.5px rgba(255, 255, 255, 0.4);
+        text-shadow: 0 0 8px rgba(220, 38, 38, 0.25);
+      }
+
+      html.minimal-breakout.minimal-breakout--light .neon-pill-btn--slate {
+        background: linear-gradient(165deg, #e5e5e5 0%, #d4d4d4 100%);
+        border: 2px solid rgba(10, 10, 10, 0.28);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+      }
+
+      html.minimal-breakout.minimal-breakout--light .neon-pill-btn--slate .neon-pill-btn__label {
+        color: #171717;
+        -webkit-text-stroke: 0.4px rgba(255, 255, 255, 0.35);
+        text-shadow: 0 0 6px rgba(0, 0, 0, 0.06);
+      }
+
+      html.minimal-breakout.minimal-breakout--light .btn.secondary {
+        background: rgba(245, 245, 245, 0.98);
+        color: #0a0a0a;
+        border: 1px solid rgba(10, 10, 10, 0.18);
+      }
     </style>
   </head>
   <body>
@@ -950,7 +1213,7 @@
       <div id="winOverlay" class="overlay overlay--win hidden">
         <div class="win-overlay-spotlight" aria-hidden="true"></div>
         <div class="win-overlay-stack">
-          <img id="winBannerImg" class="win-banner-img hidden" alt="" />
+          <div id="winBannerTitle" class="win-banner-title hidden" role="heading" aria-level="2"></div>
           <div class="win-btn-col">
             <button type="button" class="neon-pill-btn neon-pill-btn--cyan" id="btnWinRestart" aria-label="Rematch">
               <span class="neon-pill-btn__label">Rematch</span>
@@ -993,6 +1256,21 @@
               Haptics
             </label>
             <input type="checkbox" id="toggleHaptics" checked />
+          </div>
+          <div class="toggle-row">
+            <label for="toggleLightMode">
+              <svg class="icon-inline" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.6" />
+                <path
+                  d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"
+                  stroke="currentColor"
+                  stroke-width="1.4"
+                  stroke-linecap="round"
+                />
+              </svg>
+              Light mode
+            </label>
+            <input type="checkbox" id="toggleLightMode" />
           </div>
           <button type="button" class="btn secondary settings-close" id="btnCloseSettings">Close</button>
         </div>

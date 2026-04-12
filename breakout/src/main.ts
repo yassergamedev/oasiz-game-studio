@@ -1,11 +1,20 @@
 import bgMusicUrl from "../assets/bg_music.mp3";
+import {
+  enableMinimalBreakoutDocumentClass,
+  getMinColors,
+  getMinimalArenaBorderPulse,
+  initBreakoutThemeFromStorage,
+  isMinimalBreakoutVisual,
+  setBreakoutTheme,
+  type BreakoutTheme,
+} from "./breakoutMinimalStyle";
 import { loadBackgroundImage } from "./bgAssets";
 import { drawBgPlanetPass, resetBgPlanetPass, tickBgPlanetPass } from "./bgPlanetPass";
-import p1WinSrc from "../assets/p1Win.png";
-import p2WinSrc from "../assets/p2Win.png";
+import { drawTrajectoryPolyline } from "./ballTrajectoryPreview";
 import { loadStandardBallImage } from "./ballAssets";
+import { loadVersusCapsuleImages } from "./capsuleAssets";
 import { loadBrickTextureAtlas } from "./brickAssets";
-import { GameplayJuice } from "./gameplayJuice";
+import { GameplayJuice, type GameplayJuiceOptions } from "./gameplayJuice";
 import {
   computeVersusHudLayout,
   computeVersusTopPillLayoutY,
@@ -24,20 +33,23 @@ interface Settings {
   music: boolean;
   fx: boolean;
   haptics: boolean;
+  /** Minimal shell only; persisted for next session. */
+  theme: BreakoutTheme;
 }
 
 function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { music: true, fx: true, haptics: true };
+    if (!raw) return { music: true, fx: true, haptics: true, theme: "dark" };
     const parsed = JSON.parse(raw) as Partial<Settings>;
     return {
       music: parsed.music !== false,
       fx: parsed.fx !== false,
       haptics: parsed.haptics !== false,
+      theme: parsed.theme === "light" ? "light" : "dark",
     };
   } catch {
-    return { music: true, fx: true, haptics: true };
+    return { music: true, fx: true, haptics: true, theme: "dark" };
   }
 }
 
@@ -106,11 +118,12 @@ const settingsModal = document.getElementById("settingsModal")!;
 const toggleMusic = document.getElementById("toggleMusic") as HTMLInputElement;
 const toggleFx = document.getElementById("toggleFx") as HTMLInputElement;
 const toggleHaptics = document.getElementById("toggleHaptics") as HTMLInputElement;
+const toggleLightMode = document.getElementById("toggleLightMode") as HTMLInputElement;
 const btnCloseSettings = document.getElementById("btnCloseSettings") as HTMLButtonElement;
 
 const startOverlay = document.getElementById("startOverlay")!;
 const winOverlay = document.getElementById("winOverlay")!;
-const winBannerImg = document.getElementById("winBannerImg") as HTMLImageElement;
+const winBannerTitle = document.getElementById("winBannerTitle") as HTMLDivElement;
 
 const btnPlay = document.getElementById("btnPlay") as HTMLButtonElement;
 const btnWinRestart = document.getElementById("btnWinRestart") as HTMLButtonElement;
@@ -124,7 +137,16 @@ let versusHudLayout: VersusHudLayout | null = null;
 let useCanvasHud = false;
 let bgImage: HTMLImageElement | null = null;
 
-const juice = new GameplayJuice({ reduceMotion });
+enableMinimalBreakoutDocumentClass();
+if (isMinimalBreakoutVisual()) {
+  initBreakoutThemeFromStorage(settings.theme);
+}
+
+const juiceOpts: GameplayJuiceOptions = {
+  reduceMotion,
+  minimalVisual: isMinimalBreakoutVisual(),
+};
+const juice = new GameplayJuice(juiceOpts);
 const turnOwnerFx = new TurnOwnerFx(reduceMotion);
 
 const menuAttract = new MenuAttract({ reduceMotion });
@@ -173,15 +195,17 @@ function syncUiToPhase(phase: GamePhase): void {
   if (phase === "game_won") {
     winOverlay.classList.remove("hidden");
     winOverlay.classList.remove("win-overlay--exiting");
-    const w = game.winner;
-    if (w === 2) {
-      winBannerImg.src = p2WinSrc;
-      winBannerImg.alt = "Player 2 wins";
-    } else {
-      winBannerImg.src = p1WinSrc;
-      winBannerImg.alt = "Player 1 wins";
+    const spotEl = winOverlay.querySelector(".win-overlay-spotlight");
+    const stackEl = winOverlay.querySelector(".win-overlay-stack");
+    for (const el of [spotEl, stackEl]) {
+      if (!(el instanceof HTMLElement)) continue;
+      el.style.animation = "none";
+      void el.offsetWidth;
+      el.style.removeProperty("animation");
     }
-    winBannerImg.classList.remove("hidden");
+    const w = game.winner;
+    winBannerTitle.textContent = w === 2 ? "PLAYER 2 WINS" : "PLAYER 1 WINS";
+    winBannerTitle.classList.remove("hidden");
     settingsBtn.classList.add("hidden");
     if (!scoreSubmitted) {
       scoreSubmitted = true;
@@ -190,7 +214,7 @@ function syncUiToPhase(phase: GamePhase): void {
     }
   } else {
     winOverlay.classList.add("hidden");
-    winBannerImg.classList.add("hidden");
+    winBannerTitle.classList.add("hidden");
   }
 
   if (!startOverlay.classList.contains("hidden")) {
@@ -260,7 +284,7 @@ function resizeCanvas(): void {
 
   const coarse = window.matchMedia("(pointer: coarse)").matches;
   const vl = computeVersusHudLayout(w, h, coarse);
-  versusHudLayout = uiPack ? vl : null;
+  versusHudLayout = vl;
   game.setHudReserves(vl.topReserve, vl.bottomReserve);
   game.resize(w, h);
   if (game.bricks.length === 0) {
@@ -298,6 +322,51 @@ function drawGameplayBackground(): void {
   const w = game.w;
   const h = game.h;
   if (w < 2 || h < 2) return;
+
+  const pfTop = game.paddle2Y - game.paddleH * 0.5 - 6;
+  const pfBot = game.paddle1Y + game.paddleH * 0.5 + 6;
+  const pfH = pfBot - pfTop;
+
+  if (isMinimalBreakoutVisual()) {
+    const mc = getMinColors();
+    ctx.save();
+    ctx.fillStyle = mc.void;
+    ctx.fillRect(0, 0, w, h);
+    const v2 = ctx.createRadialGradient(
+      w * 0.5,
+      h * 0.42,
+      0,
+      w * 0.5,
+      h * 0.52,
+      Math.max(w, h) * 0.72,
+    );
+    v2.addColorStop(0, mc.vignette0);
+    v2.addColorStop(0.55, mc.vignette1);
+    v2.addColorStop(1, mc.vignette2);
+    ctx.fillStyle = v2;
+    ctx.fillRect(0, 0, w, h);
+    ctx.restore();
+
+    const pulse = reduceMotion ? 0.5 : 0.42 + 0.12 * Math.sin(performance.now() * 0.002);
+    ctx.save();
+    ctx.strokeStyle = getMinimalArenaBorderPulse(pulse);
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(game.wallLeft, pfTop, game.wallRight - game.wallLeft, pfH);
+    ctx.restore();
+
+    ctx.save();
+    ctx.strokeStyle = mc.arenaStrokeSoft;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 10]);
+    const midY = pfTop + pfH * 0.5;
+    ctx.beginPath();
+    ctx.moveTo(game.wallLeft + 10, midY);
+    ctx.lineTo(game.wallRight - 10, midY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+    return;
+  }
 
   const img = bgImage;
   const div = reduceMotion ? 4 : 6;
@@ -370,10 +439,6 @@ function drawGameplayBackground(): void {
   ctx.fillStyle = vg;
   ctx.fillRect(0, 0, w, h);
   ctx.restore();
-
-  const pfTop = game.paddle2Y - game.paddleH * 0.5 - 6;
-  const pfBot = game.paddle1Y + game.paddleH * 0.5 + 6;
-  const pfH = pfBot - pfTop;
 
   const t = performance.now() * 0.002;
   const pulse = reduceMotion ? 0.22 : 0.2 + Math.sin(t) * 0.1;
@@ -457,16 +522,30 @@ function drawCountdownOverlay(label: string, nowMs: number): void {
   ctx.font = "900 " + String(fs * 0.95) + "px Orbitron,system-ui,sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillStyle = "rgba(2, 6, 23, 0.45)";
-  ctx.fillText(label, cx + 4, cy + 5);
-  const grd = ctx.createLinearGradient(cx - fs, cy - fs * 0.5, cx + fs, cy + fs * 0.5);
-  grd.addColorStop(0, "#fcd34d");
-  grd.addColorStop(0.45, "#38bdf8");
-  grd.addColorStop(1, "#c4b5fd");
-  ctx.fillStyle = grd;
-  ctx.shadowColor = "rgba(56, 189, 248, 0.65)";
-  ctx.shadowBlur = 32;
-  ctx.fillText(label, cx, cy);
+  if (isMinimalBreakoutVisual()) {
+    const mc = getMinColors();
+    ctx.lineWidth = Math.max(2, fs * 0.04);
+    ctx.strokeStyle = mc.countdownStroke;
+    ctx.strokeText(label, cx + 3, cy + 4);
+    ctx.fillStyle = mc.text;
+    ctx.fillText(label, cx, cy);
+    ctx.strokeStyle = mc.accent;
+    ctx.lineWidth = Math.max(1.5, fs * 0.028);
+    ctx.globalAlpha = 0.35 + 0.25 * Math.sin(nowMs * 0.012);
+    ctx.strokeText(label, cx, cy);
+    ctx.globalAlpha = 1;
+  } else {
+    ctx.fillStyle = "rgba(2, 6, 23, 0.45)";
+    ctx.fillText(label, cx + 4, cy + 5);
+    const grd = ctx.createLinearGradient(cx - fs, cy - fs * 0.5, cx + fs, cy + fs * 0.5);
+    grd.addColorStop(0, "#fcd34d");
+    grd.addColorStop(0.45, "#38bdf8");
+    grd.addColorStop(1, "#c4b5fd");
+    ctx.fillStyle = grd;
+    ctx.shadowColor = "rgba(56, 189, 248, 0.65)";
+    ctx.shadowBlur = 32;
+    ctx.fillText(label, cx, cy);
+  }
   ctx.restore();
 }
 
@@ -569,6 +648,36 @@ function frame(now: number): void {
         ? { t: spawnT }
         : undefined;
     game.draw(ctx, introDraw);
+    if (
+      !reduceMotion &&
+      !introBlocking() &&
+      (game.phase === "ready" || game.phase === "playing")
+    ) {
+      const dashOff = -(performance.now() * 0.035) % 24;
+      const stroke = isMinimalBreakoutVisual()
+        ? getMinColors().accent
+        : "rgba(186, 230, 253, 0.82)";
+      const pfTop = game.playfieldTop();
+      const pfH = game.playfieldBottom() - pfTop;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(game.wallLeft, pfTop, game.wallRight - game.wallLeft, pfH);
+      ctx.clip();
+      for (let bi = 0; bi < game.balls.length; bi++) {
+        const ball = game.balls[bi];
+        if (!ball || ball.stuckTo !== 0) continue;
+        const pts = game.getBallTrajectoryPolyline(ball);
+        if (pts.length < 2) continue;
+        drawTrajectoryPolyline(ctx, pts, {
+          stroke,
+          lineWidth: isMinimalBreakoutVisual() ? 2 : 2.25,
+          dash: [7, 9],
+          dashOffset: dashOff + bi * 4,
+          globalAlpha: game.balls.length > 1 ? 0.38 : 0.5,
+        });
+      }
+      ctx.restore();
+    }
     juice.drawShockRings(ctx);
     juice.drawParticles(ctx);
     const rimTop = game.paddle2Y - game.paddleH * 0.5 - 6;
@@ -580,10 +689,9 @@ function frame(now: number): void {
     ctx.restore();
     ctx.restore();
 
-    if (useCanvasHud && uiPack && versusHudLayout && !introBlocking()) {
+    if (useCanvasHud && versusHudLayout && !introBlocking()) {
       drawVersusHudChrome(
         ctx,
-        uiPack,
         versusHudLayout,
         {
           r1: game.remainingFor(1),
@@ -610,6 +718,7 @@ function bindSettingsUi(): void {
   toggleMusic.checked = settings.music;
   toggleFx.checked = settings.fx;
   toggleHaptics.checked = settings.haptics;
+  toggleLightMode.checked = settings.theme === "light";
   toggleMusic.addEventListener("change", () => {
     settings.music = toggleMusic.checked;
     saveSettings(settings);
@@ -625,6 +734,15 @@ function bindSettingsUi(): void {
     settings.haptics = toggleHaptics.checked;
     saveSettings(settings);
     console.log("[main]", "settings haptics", settings.haptics);
+  });
+  toggleLightMode.addEventListener("change", () => {
+    triggerHaptic("light", settings);
+    settings.theme = toggleLightMode.checked ? "light" : "dark";
+    if (isMinimalBreakoutVisual()) {
+      setBreakoutTheme(settings.theme);
+    }
+    saveSettings(settings);
+    console.log("[main]", "settings theme", settings.theme);
   });
   function setSettingsModalOpen(open: boolean): void {
     settingsModal.classList.toggle("settings-modal--open", open);
@@ -851,6 +969,15 @@ void loadStandardBallImage()
   })
   .catch((err) => {
     console.log("[main]", "ball texture failed, using fallback", err);
+  });
+
+void loadVersusCapsuleImages()
+  .then((caps) => {
+    game.setVersusCapsuleImages(caps);
+  })
+  .catch((err) => {
+    console.log("[main]", "capsule PNGs failed, using vector pickups", err);
+    game.setVersusCapsuleImages(null);
   });
 
 void loadBreakoutUiPack()

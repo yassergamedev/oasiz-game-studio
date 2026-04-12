@@ -6,6 +6,9 @@ import {
   scoreForDestroyedBrick,
   tierForRow,
 } from "./brickAssets";
+import { computeVersusTrajectoryPolyline, type TrajectoryBrick } from "./ballTrajectoryPreview";
+import type { VersusCapsuleImageSet } from "./capsuleAssets";
+import { getMinColors, isMinimalBreakoutVisual } from "./breakoutMinimalStyle";
 import type { GameplayJuiceEvent } from "./gameplayJuice";
 import { ProtoAudio } from "./protoAudio";
 
@@ -62,42 +65,166 @@ export interface VersusLayoutDef {
 const P1_HUE: BrickHue = "blue";
 const P2_HUE: BrickHue = "violet";
 
+/**
+ * Each row is 12 cells: `1` = P1 brick, `2` = P2, `.` = empty.
+ * Every arena has **equal** total `1` and `2` counts (fair win race).
+ * Mix dense walls, gaps, phase shifts, and sparse “constellation” rows so “Next arena” feels different.
+ */
+function assertBalancedVersusLayout(name: string, grid: string[]): void {
+  let n1 = 0;
+  let n2 = 0;
+  for (const row of grid) {
+    for (let i = 0; i < row.length; i++) {
+      const ch = row[i];
+      if (ch === "1") n1 += 1;
+      else if (ch === "2") n2 += 1;
+    }
+  }
+  if (n1 !== n2) {
+    console.log("[assertBalancedVersusLayout]", "unbalanced arena", name, "p1", n1, "p2", n2);
+  }
+}
+
 const LAYOUTS: VersusLayoutDef[] = [
   {
-    name: "Duel",
-    /** Columns 2 and 5 are open vertical lanes so the ball can thread through and mix rallies. */
+    name: "Citadel",
     grid: [
-      "12.12.12",
-      "21.21.21",
-      "11.22.11",
-      "22.11.22",
-      "12.12.12",
-      "21.21.21",
+      "111222111222",
+      "212121212121",
+      "221122112211",
+      "112211221122",
+      "121212121212",
+      "211221122112",
+      "222111222111",
+      "111222111222",
     ],
   },
   {
-    name: "Split",
+    name: "Rift",
     grid: [
-      "11.11.22",
-      "11.11.22",
-      "12.12.12",
-      "21.21.21",
-      "22.22.11",
-      "22.22.11",
+      "1111....2222",
+      "2222....1111",
+      "1111....2222",
+      "2222....1111",
+      "11..22..11..",
+      "22..11..22..",
+      "1.1.2.2.1.2.",
+      "2.2.1.1.2.1.",
     ],
   },
   {
-    name: "Chaos",
+    name: "Tempest",
     grid: [
-      "21.21.12",
-      "12.12.21",
-      "22.11.11",
-      "11.22.22",
-      "212.12.11",
-      "121.2.12",
+      "121122211212",
+      "212211122121",
+      "112122121221",
+      "221211212112",
+      "122121221211",
+      "211212112122",
+      "122112212121",
+      "121221211221",
+    ],
+  },
+  {
+    name: "Bastion",
+    grid: [
+      "111222111222",
+      "222111222111",
+      "121212121212",
+      "212121212121",
+      "112211221122",
+      "221122112211",
+      "122121212211",
+      "211212121122",
+    ],
+  },
+  {
+    name: "Blitz",
+    grid: [
+      "112211221122",
+      "221122112211",
+      "121212121212",
+      "212121212121",
+      "111222111222",
+      "222111222111",
+      "122122121211",
+    ],
+  },
+  {
+    name: "Labyrinth",
+    grid: [
+      "111...222...",
+      "222...111...",
+      "111...222...",
+      "222...111...",
+      "1122..1122..",
+      "..1122..1122",
+      "121212121212",
+      "212121212121",
+      "122112211221",
+      "211221122112",
+    ],
+  },
+  {
+    name: "Mosaic",
+    grid: [
+      "111122221122",
+      "222211112211",
+      "121121212212",
+      "212212121121",
+      "112211221122",
+      "221122112211",
+      "111222111222",
+      "222111222111",
+      "121212121212",
+    ],
+  },
+  {
+    name: "Vortex",
+    grid: [
+      "111222111222",
+      "222111222111",
+      "121212121212",
+      "212121212121",
+      "121122211212",
+      "212211122121",
+      "112122121221",
+      "221211212112",
+    ],
+  },
+  {
+    name: "Shattered",
+    grid: [
+      "1111....2222",
+      "....22221111",
+      "2222....1111",
+      "....11112222",
+      "11..22..11..",
+      "..22..11..22",
+      "1.1.1.2.2.2.",
+      "2.2.2.1.1.1.",
+      "1122....1122",
+      "....2211....",
+    ],
+  },
+  {
+    name: "Crown",
+    grid: [
+      "122112211221",
+      "211221122112",
+      "112112221221",
+      "212112211221",
+      "111222111222",
+      "121212121212",
+      "221122112211",
+      "112211221122",
     ],
   },
 ];
+
+for (const def of LAYOUTS) {
+  assertBalancedVersusLayout(def.name, def.grid);
+}
 
 const BASE_BALL_SPEED = 415;
 const SLOW_MULT = 0.5;
@@ -146,59 +273,105 @@ function easeOutBackIntro(x: number): number {
   return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
 }
 
-/** Stable seed from brick position — no per-frame randomness in draw. */
-function brickGlitterSeed(brick: VersusBrick): number {
+/** Stable seed from brick position — deterministic cracks (no draw-loop RNG). */
+function brickCrackSeed(brick: VersusBrick): number {
   return ((brick.x * 73856093) ^ (brick.y * 19349663) ^ (brick.w * 83492791)) >>> 0;
 }
 
-function drawVersusBrickGlitter(
+function crackFrac(seed: number, salt: number): number {
+  const x = Math.sin(seed * 0.0000157 + salt * 91.171) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+/** Fracture lines scale with damage — reads clearly on flat B/W bricks. */
+function drawVersusBrickCracks(
   ctx: CanvasRenderingContext2D,
   brick: VersusBrick,
-  nowMs: number,
-  strength: number,
-  reduceMotion: boolean,
+  seed: number,
+  strokeA: string,
+  strokeB: string,
 ): void {
-  if (strength <= 0.02) return;
-  const seed = brickGlitterSeed(brick);
-  const t = nowMs * 0.0038;
-  const nSpeck = reduceMotion ? 3 : 7;
+  const dmg = brick.maxHp > 0 ? 1 - brick.hp / brick.maxHp : 0;
+  const chipped = brick.hp < brick.maxHp;
+  if (!chipped && dmg < 0.02) return;
+  const count = Math.min(12, 2 + Math.floor(dmg * 9) + (chipped ? 1 : 0));
   ctx.save();
-  ctx.filter = "none";
-  ctx.globalCompositeOperation = "lighter";
-  const owner = brick.owner;
-  const palettes =
-    owner === 1
-      ? [
-          "rgba(224,242,254,",
-          "rgba(255,255,255,",
-          "rgba(56,189,248,",
-          "rgba(165,243,252,",
-        ]
-      : [
-          "rgba(237,233,254,",
-          "rgba(255,255,255,",
-          "rgba(192,132,252,",
-          "rgba(233,213,255,",
-        ];
-  const inner = Math.max(2, Math.min(brick.w, brick.h) * 0.12);
-  for (let i = 0; i < nSpeck; i++) {
-    const u = 0.5 + 0.5 * Math.sin(seed * 0.00017 + i * 2.17);
-    const v = 0.5 + 0.5 * Math.cos(seed * 0.00013 + i * 1.63);
-    const px = brick.x + inner + u * (brick.w - inner * 2);
-    const py = brick.y + inner + v * (brick.h - inner * 2);
-    const ph = seed * 0.00031 + i * 1.91;
-    const spd = 1.05 + (i % 4) * 0.11;
-    const tw = reduceMotion
-      ? 0.42
-      : 0.28 + 0.72 * (0.5 + 0.5 * Math.sin(t * spd + ph));
-    const r = (0.9 + ((seed >> (i * 3)) & 7) * 0.18) * (0.85 + 0.15 * strength);
-    const pal = palettes[i % palettes.length];
-    ctx.fillStyle = pal + (tw * strength * 0.9).toFixed(3) + ")";
+  ctx.lineCap = "round";
+  for (let i = 0; i < count; i++) {
+    const u2 = crackFrac(seed, i * 3 + 2);
+    const edge = i % 4;
+    let x0 = brick.x + brick.w * (0.1 + crackFrac(seed, i * 3) * 0.8);
+    let y0 = brick.y + brick.h * (0.1 + crackFrac(seed, i * 3 + 1) * 0.8);
+    if (edge === 0) {
+      x0 = brick.x + u2 * brick.w;
+      y0 = brick.y + 0.5;
+    } else if (edge === 1) {
+      x0 = brick.x + brick.w - 0.5;
+      y0 = brick.y + u2 * brick.h;
+    } else if (edge === 2) {
+      x0 = brick.x + u2 * brick.w;
+      y0 = brick.y + brick.h - 0.5;
+    } else {
+      x0 = brick.x + 0.5;
+      y0 = brick.y + u2 * brick.h;
+    }
+    const cx = brick.x + brick.w * (0.22 + crackFrac(seed, 100 + i) * 0.56);
+    const cy = brick.y + brick.h * (0.22 + crackFrac(seed, 200 + i) * 0.56);
+    const jx = (crackFrac(seed, 300 + i) - 0.5) * brick.w * 0.28;
+    const jy = (crackFrac(seed, 400 + i) - 0.5) * brick.h * 0.32;
     ctx.beginPath();
-    ctx.arc(px, py, r, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(cx + jx, cy + jy);
+    ctx.strokeStyle = i % 2 === 0 ? strokeA : strokeB;
+    ctx.lineWidth = 1.05 + dmg * 0.65;
+    ctx.globalAlpha = 0.48 + dmg * 0.5;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
   }
   ctx.restore();
+}
+
+/** Flat black / white bricks plus damage cracks (no glitter / glass gradients). */
+function drawVersusBrickSimple(ctx: CanvasRenderingContext2D, brick: VersusBrick): void {
+  const minimal = isMinimalBreakoutVisual();
+  const mc = minimal ? getMinColors() : null;
+  const rr = Math.min(4, brick.w * 0.12, brick.h * 0.14);
+  let fill: string;
+  let stroke: string;
+  let lw: number;
+  if (minimal && mc) {
+    fill = brick.owner === 1 ? mc.brickP1Fill : mc.brickP2Fill;
+    stroke = brick.owner === 1 ? mc.brickP1Stroke : mc.brickP2Stroke;
+    lw = brick.owner === 1 ? 1.5 : 1.65;
+  } else {
+    fill = brick.owner === 1 ? "#0a0a0a" : "#b91c1c";
+    stroke = brick.owner === 1 ? "#ef4444" : "#0a0a0a";
+    lw = 2;
+  }
+  ctx.fillStyle = fill;
+  pathRoundRect(ctx, brick.x, brick.y, brick.w, brick.h, rr);
+  ctx.fill();
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = lw;
+  pathRoundRect(ctx, brick.x, brick.y, brick.w, brick.h, rr);
+  ctx.stroke();
+
+  const seed = brickCrackSeed(brick);
+  if (minimal && mc) {
+    if (brick.owner === 1) {
+      drawVersusBrickCracks(ctx, brick, seed, "rgba(239,68,68,0.92)", "rgba(248,113,113,0.62)");
+    } else {
+      drawVersusBrickCracks(ctx, brick, seed, "rgba(10,10,10,0.9)", "rgba(127,29,29,0.78)");
+    }
+  } else {
+    drawVersusBrickCracks(
+      ctx,
+      brick,
+      seed,
+      brick.owner === 1 ? "rgba(239,68,68,0.88)" : "rgba(10,10,10,0.88)",
+      brick.owner === 1 ? "rgba(127,29,29,0.68)" : "rgba(185,28,28,0.72)",
+    );
+  }
 }
 
 export interface DrawIntroOpts {
@@ -257,6 +430,7 @@ export class VersusBreakoutGame {
   private brickAtlas: BrickTextureAtlas | null = null;
   private ballImage: HTMLImageElement | null = null;
   private paddleImage: HTMLImageElement | null = null;
+  private capsuleSprites: Partial<Record<VersusCapsuleKind, HTMLImageElement>> = {};
   private hudTopReserve = 0;
   private hudBotReserve = 0;
 
@@ -301,6 +475,22 @@ export class VersusBreakoutGame {
     this.paddleImage = img;
   }
 
+  /** Art for all versus capsule kinds; pass null to clear and use vector fallback. */
+  setVersusCapsuleImages(imgs: VersusCapsuleImageSet | null): void {
+    if (!imgs) {
+      this.capsuleSprites = {};
+      return;
+    }
+    this.capsuleSprites = {
+      multiball: imgs.multiball,
+      paddle_big: imgs.paddle_big,
+      paddle_small: imgs.paddle_small,
+      slow_ball: imgs.slow_ball,
+      reverse_colors: imgs.reverse_colors,
+      convert_colors: imgs.convert_colors,
+    };
+  }
+
   setHudReserves(topPx: number, bottomPx: number): void {
     this.hudTopReserve = Math.max(0, topPx);
     this.hudBotReserve = Math.max(0, bottomPx);
@@ -308,6 +498,33 @@ export class VersusBreakoutGame {
 
   isSlowBallActive(): boolean {
     return performance.now() < this.slowBallUntil;
+  }
+
+  /** Dotted aim path in playfield space (same transform as `draw`). */
+  getBallTrajectoryPolyline(ball: VersusBall): { x: number; y: number }[] {
+    if (ball.stuckTo !== 0) return [];
+    if (Math.hypot(ball.vx, ball.vy) < 8) return [];
+    const bricks: TrajectoryBrick[] = [];
+    for (let i = 0; i < this.bricks.length; i++) {
+      const b = this.bricks[i];
+      if (!b.alive) continue;
+      bricks.push({ id: i, x: b.x, y: b.y, w: b.w, h: b.h });
+    }
+    return computeVersusTrajectoryPolyline({
+      ox: ball.x,
+      oy: ball.y,
+      vx: ball.vx,
+      vy: ball.vy,
+      r: ball.r,
+      speed: this.currentBallSpeed(),
+      wallLeft: this.wallLeft,
+      wallRight: this.wallRight,
+      wallYTop: this.wallYTop,
+      wallYBot: this.wallYBot,
+      clipMinY: this.playfieldTop(),
+      clipMaxY: this.playfieldBottom(),
+      bricks,
+    });
   }
 
   getPaddleW(p: PlayerId): number {
@@ -422,32 +639,54 @@ export class VersusBreakoutGame {
       ctx.textBaseline = "middle";
       ctx.font = "900 " + String(fs * 0.95) + "px Orbitron,system-ui,sans-serif";
 
-      const grd = ctx.createLinearGradient(x - fs * 2.2, y - fs * 0.6, x + fs * 2.2, y + fs * 0.85);
-      grd.addColorStop(0, "#fcd34d");
-      grd.addColorStop(0.42, "#38bdf8");
-      grd.addColorStop(0.78, "#c4b5fd");
-      grd.addColorStop(1, "#e2e8f0");
+      if (isMinimalBreakoutVisual()) {
+        const mc = getMinColors();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = mc.scorePopupShadow;
+        ctx.fillText(pop.main, x + 2, y + 3);
+        ctx.fillStyle = mc.text;
+        ctx.fillText(pop.main, x, y);
+        ctx.strokeStyle = mc.accent;
+        ctx.lineWidth = 1.2;
+        ctx.globalAlpha = 0.35;
+        ctx.strokeText(pop.main, x, y);
+        ctx.globalAlpha = alpha;
+      } else {
+        const grd = ctx.createLinearGradient(x - fs * 2.2, y - fs * 0.6, x + fs * 2.2, y + fs * 0.85);
+        grd.addColorStop(0, "#fcd34d");
+        grd.addColorStop(0.42, "#38bdf8");
+        grd.addColorStop(0.78, "#c4b5fd");
+        grd.addColorStop(1, "#e2e8f0");
 
-      ctx.shadowColor =
-        pop.player === 1 ? "rgba(56, 189, 248, 0.55)" : "rgba(167, 139, 250, 0.55)";
-      ctx.shadowBlur = this.reduceMotion ? 0 : 14;
-      ctx.fillStyle = "rgba(2, 6, 23, 0.5)";
-      ctx.fillText(pop.main, x + 2, y + 3);
-      ctx.fillStyle = grd;
-      ctx.fillText(pop.main, x, y);
-      ctx.shadowBlur = 0;
+        ctx.shadowColor =
+          pop.player === 1 ? "rgba(239, 68, 68, 0.45)" : "rgba(220, 38, 38, 0.5)";
+        ctx.shadowBlur = this.reduceMotion ? 0 : 14;
+        ctx.fillStyle = "rgba(2, 6, 23, 0.5)";
+        ctx.fillText(pop.main, x + 2, y + 3);
+        ctx.fillStyle = grd;
+        ctx.fillText(pop.main, x, y);
+        ctx.shadowBlur = 0;
+      }
 
       if (pop.comboLine) {
         const cfs = fs * 0.4;
         ctx.font = "800 " + String(cfs) + "px Orbitron,system-ui,sans-serif";
-        const cg = ctx.createLinearGradient(x - fs, y + fs * 0.35, x + fs, y + fs * 1.1);
-        cg.addColorStop(0, "#fde68a");
-        cg.addColorStop(0.5, "#f472b6");
-        cg.addColorStop(1, "#a78bfa");
-        ctx.fillStyle = "rgba(15, 23, 42, 0.45)";
-        ctx.fillText(pop.comboLine, x + 1, y + fs * 0.72 + 2);
-        ctx.fillStyle = cg;
-        ctx.fillText(pop.comboLine, x, y + fs * 0.72);
+        if (isMinimalBreakoutVisual()) {
+          const mc = getMinColors();
+          ctx.fillStyle = mc.scoreComboShadow;
+          ctx.fillText(pop.comboLine, x + 1, y + fs * 0.72 + 2);
+          ctx.fillStyle = mc.accentSoft;
+          ctx.fillText(pop.comboLine, x, y + fs * 0.72);
+        } else {
+          const cg = ctx.createLinearGradient(x - fs, y + fs * 0.35, x + fs, y + fs * 1.1);
+          cg.addColorStop(0, "#fde68a");
+          cg.addColorStop(0.5, "#f472b6");
+          cg.addColorStop(1, "#a78bfa");
+          ctx.fillStyle = "rgba(15, 23, 42, 0.45)";
+          ctx.fillText(pop.comboLine, x + 1, y + fs * 0.72 + 2);
+          ctx.fillStyle = cg;
+          ctx.fillText(pop.comboLine, x, y + fs * 0.72);
+        }
       }
 
       ctx.restore();
@@ -511,12 +750,13 @@ export class VersusBreakoutGame {
     const rowCount = def.grid.length;
     if (rowCount === 0) return null;
 
-    const gap = 3;
+    const gap = 4;
     const rowGaps = gap * Math.max(0, rowCount - 1);
-    let brickH = Math.min(26, Math.max(12, (innerH - rowGaps) / rowCount));
+    /** Larger glass bricks; still shrink if the face band is tight. */
+    let brickH = Math.min(40, Math.max(17, (innerH - rowGaps) / rowCount));
     let totalStack = rowCount * brickH + rowGaps;
     if (totalStack > innerH + 0.5) {
-      brickH = Math.max(7, (innerH - rowGaps) / rowCount);
+      brickH = Math.max(11, (innerH - rowGaps) / rowCount);
       totalStack = rowCount * brickH + rowGaps;
     }
     const yStart = innerTop + Math.max(0, (innerH - totalStack) * 0.5);
@@ -704,7 +944,7 @@ export class VersusBreakoutGame {
       y: cy,
       vy: down ? speed : -speed,
       kind: this.pickCapsuleKind(),
-      r: Math.max(6, this.w * 0.013),
+      r: Math.max(9, this.w * 0.018),
     });
   }
 
@@ -1118,7 +1358,6 @@ export class VersusBreakoutGame {
       }
       if (appear <= 0.004) continue;
 
-      const img = this.brickAtlas?.[brick.hue]?.[brick.tier];
       const alpha = (0.5 + 0.5 * (brick.hp / brick.maxHp)) * appear;
       const cx = brick.x + brick.w / 2;
       const cy = brick.y + brick.h / 2;
@@ -1128,22 +1367,8 @@ export class VersusBreakoutGame {
       ctx.translate(cx, cy);
       ctx.scale(sc, sc);
       ctx.translate(-cx, -cy);
-      ctx.filter = ownerTint(brick.owner);
-      if (img && img.complete && img.naturalWidth > 0) {
-        ctx.drawImage(img, brick.x, brick.y, brick.w, brick.h);
-      } else {
-        ctx.filter = "none";
-        ctx.fillStyle = brick.owner === 1 ? "#38bdf8" : "#c4b5fd";
-        ctx.strokeStyle = brick.owner === 1 ? "#0369a1" : "#5b21b6";
-        ctx.lineWidth = 2;
-        pathRoundRect(ctx, brick.x, brick.y, brick.w, brick.h, 4);
-        ctx.fill();
-        ctx.stroke();
-      }
-      if (appear > 0.25) {
-        const glitterStrength = alpha * (0.55 + 0.45 * (brick.hp / brick.maxHp));
-        drawVersusBrickGlitter(ctx, brick, nowMs, glitterStrength, this.reduceMotion);
-      }
+      ctx.filter = "none";
+      drawVersusBrickSimple(ctx, brick);
       ctx.restore();
     }
 
@@ -1186,25 +1411,49 @@ export class VersusBreakoutGame {
         ctx.translate(dx / psc, dy / psc);
       }
       ctx.translate(-pcx, -pcy);
-      const glow = p === 1 ? "rgba(56,189,248,0.45)" : "rgba(167,139,250,0.5)";
+      const minimal = isMinimalBreakoutVisual();
+      const glow = minimal
+        ? getMinColors().paddleShadowGlow
+        : p === 1
+          ? "rgba(239, 68, 68, 0.35)"
+          : "rgba(220, 38, 38, 0.4)";
       ctx.shadowColor = glow;
-      ctx.shadowBlur = this.reduceMotion ? 0 : hasBall ? 20 : 12;
-      if (pImg && pImg.complete && pImg.naturalWidth > 0) {
+      ctx.shadowBlur = this.reduceMotion || minimal ? 0 : hasBall ? 20 : 12;
+      if (!minimal && pImg && pImg.complete && pImg.naturalWidth > 0) {
         ctx.drawImage(pImg, x0, y0, pw, ph);
       } else {
-        ctx.fillStyle = p === 1 ? "#38bdf8" : "#a78bfa";
-        ctx.strokeStyle = p === 1 ? "#0ea5e9" : "#7c3aed";
-        ctx.lineWidth = 3;
-        pathRoundRect(ctx, x0, y0, pw, ph, 6);
-        ctx.fill();
-        ctx.stroke();
+        if (minimal) {
+          const mc = getMinColors();
+          if (p === 1) {
+            ctx.fillStyle = mc.paddleP1Fill;
+            ctx.strokeStyle = mc.paddleP1Stroke;
+          } else {
+            ctx.fillStyle = mc.paddleP2Fill;
+            ctx.strokeStyle = mc.paddleP2Stroke;
+          }
+          ctx.lineWidth = p === 1 ? 2.5 : 2;
+          pathRoundRect(ctx, x0, y0, pw, ph, 6);
+          ctx.fill();
+          ctx.stroke();
+        } else {
+          ctx.fillStyle = p === 1 ? "#0a0a0a" : "#b91c1c";
+          ctx.strokeStyle = p === 1 ? "#ef4444" : "#0a0a0a";
+          ctx.lineWidth = 3;
+          pathRoundRect(ctx, x0, y0, pw, ph, 6);
+          ctx.fill();
+          ctx.stroke();
+        }
       }
       if (hasBall && !this.reduceMotion) {
         const pulse = 0.55 + 0.45 * Math.sin(nowMs * 0.0042);
-        ctx.globalCompositeOperation = "screen";
-        ctx.globalAlpha = 0.22 * pulse * appear;
-        ctx.strokeStyle = p === 1 ? "rgba(125, 211, 252, 0.95)" : "rgba(196, 181, 253, 0.95)";
-        ctx.lineWidth = 2.5;
+        ctx.globalCompositeOperation = minimal ? "source-over" : "screen";
+        ctx.globalAlpha = minimal ? 0.55 * pulse * appear : 0.22 * pulse * appear;
+        ctx.strokeStyle = minimal
+          ? getMinColors().accent
+          : p === 1
+            ? "rgba(239, 68, 68, 0.9)"
+            : "rgba(254, 202, 202, 0.95)";
+        ctx.lineWidth = minimal ? 2 : 2.5;
         pathRoundRect(ctx, x0 - 1, y0 - 1, pw + 2, ph + 2, 8);
         ctx.stroke();
         ctx.globalCompositeOperation = "source-over";
@@ -1222,10 +1471,44 @@ export class VersusBreakoutGame {
     drawPaddle(this.paddle2X, this.paddle2Y, this.getPaddleW(2), 2, p2Appear);
     drawPaddle(this.paddle1X, this.paddle1Y, this.getPaddleW(1), 1, p1Appear);
 
+    const capMinimal = isMinimalBreakoutVisual();
     for (const cap of this.capsules) {
       ctx.save();
       const k = cap.kind;
-      if (k === "multiball") {
+      const sprite = this.capsuleSprites[k];
+      const useSprite = !!(sprite && sprite.complete && sprite.naturalWidth > 0);
+      if (useSprite && sprite) {
+        const iw = sprite.naturalWidth;
+        const ih = sprite.naturalHeight;
+        const box = cap.r * 2;
+        const scale = Math.min(box / iw, box / ih);
+        const dw = iw * scale;
+        const dh = ih * scale;
+        ctx.drawImage(sprite, cap.x - dw * 0.5, cap.y - dh * 0.5, dw, dh);
+        ctx.restore();
+        continue;
+      }
+      if (capMinimal) {
+        if (k === "multiball") {
+          ctx.fillStyle = "rgba(239, 68, 68, 0.92)";
+          ctx.strokeStyle = "#450a0a";
+        } else if (k === "paddle_big") {
+          ctx.fillStyle = "#e5e5e5";
+          ctx.strokeStyle = "#0a0a0a";
+        } else if (k === "paddle_small") {
+          ctx.fillStyle = "#404040";
+          ctx.strokeStyle = "#fafafa";
+        } else if (k === "slow_ball") {
+          ctx.fillStyle = "#a3a3a3";
+          ctx.strokeStyle = "#171717";
+        } else if (k === "reverse_colors") {
+          ctx.fillStyle = "#262626";
+          ctx.strokeStyle = "#ef4444";
+        } else {
+          ctx.fillStyle = "#fafafa";
+          ctx.strokeStyle = "#ef4444";
+        }
+      } else if (k === "multiball") {
         ctx.fillStyle = "#4ade80";
         ctx.strokeStyle = "#166534";
       } else if (k === "paddle_big") {
@@ -1257,7 +1540,8 @@ export class VersusBreakoutGame {
       ballAppear = easeOutBackIntro(clamp01Intro((tIntro - 0.72) / 0.28));
     }
     const ballImg = this.ballImage;
-    const useSprite = !!(ballImg && ballImg.complete && ballImg.naturalWidth > 0);
+    const useSprite =
+      !isMinimalBreakoutVisual() && !!(ballImg && ballImg.complete && ballImg.naturalWidth > 0);
     for (const ball of this.balls) {
       if (ballAppear <= 0.006) continue;
       ctx.save();
@@ -1266,32 +1550,42 @@ export class VersusBreakoutGame {
       const sw = ball.stuckTo !== 0 ? possessionSway(ball.stuckTo) : { dx: 0, dy: 0 };
       const bx = ball.x + sw.dx;
       const by = ball.y + sw.dy;
-      const left = bx - br;
-      const top = by - br;
       const d = br * 2;
       if (useSprite) {
         if (flashSlow) {
           ctx.shadowColor = "#93c5fd";
           ctx.shadowBlur = this.reduceMotion ? 0 : 12;
         }
-        ctx.drawImage(ballImg, left, top, d, d);
+        const biw = ballImg!.naturalWidth;
+        const bih = ballImg!.naturalHeight;
+        const bscale = Math.min(d / biw, d / bih);
+        const bdw = biw * bscale;
+        const bdh = bih * bscale;
+        ctx.drawImage(ballImg!, bx - bdw * 0.5, by - bdh * 0.5, bdw, bdh);
       } else {
         ctx.beginPath();
         ctx.arc(bx, by, br, 0, Math.PI * 2);
-        ctx.fillStyle = flashSlow ? "#bfdbfe" : "#ffffff";
-        ctx.strokeStyle = "#64748b";
-        ctx.lineWidth = 2;
+        if (isMinimalBreakoutVisual()) {
+          const mc = getMinColors();
+          ctx.fillStyle = flashSlow ? mc.ballSlow : mc.ball;
+          ctx.strokeStyle = flashSlow ? mc.ballStrokeSlow : mc.ballStroke;
+          ctx.lineWidth = 2;
+          if (!this.reduceMotion && !flashSlow) {
+            ctx.shadowColor = "rgba(239, 68, 68, 0.55)";
+            ctx.shadowBlur = 10;
+          }
+        } else {
+          ctx.fillStyle = flashSlow ? "#bfdbfe" : "#ffffff";
+          ctx.strokeStyle = "#64748b";
+          ctx.lineWidth = 2;
+        }
         ctx.fill();
         ctx.stroke();
+        ctx.shadowBlur = 0;
       }
       ctx.restore();
     }
 
     this.drawScorePopups(ctx, nowMs);
   }
-}
-
-function ownerTint(o: PlayerId): string {
-  if (o === 1) return "saturate(1.15) hue-rotate(-5deg) brightness(1.05)";
-  return "saturate(1.12) hue-rotate(12deg) brightness(1.06)";
 }

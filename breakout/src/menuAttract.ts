@@ -3,6 +3,8 @@
  * No Math.random() inside draw(); phases pre-seeded at spawn.
  */
 
+import { getBreakoutTheme, getMinColors, isMinimalBreakoutVisual } from "./breakoutMinimalStyle";
+
 export interface MenuAttractOptions {
   reduceMotion: boolean;
 }
@@ -299,8 +301,12 @@ export class MenuAttract {
   draw(ctx: CanvasRenderingContext2D): void {
     const W = this.w;
     const H = this.h;
+    const min = isMinimalBreakoutVisual();
     const img = this.bgImg;
-    if (img && img.complete && img.naturalWidth > 0) {
+    if (min) {
+      ctx.fillStyle = getMinColors().void;
+      ctx.fillRect(0, 0, W, H);
+    } else if (img && img.complete && img.naturalWidth > 0) {
       const iw = img.naturalWidth;
       const ih = img.naturalHeight;
       const scale = Math.max(W / iw, H / ih);
@@ -322,18 +328,30 @@ export class MenuAttract {
         const x = s.bx * W;
         const y = s.by * H;
         const tw = 0.35 + Math.sin(this.t * 1.2 + s.tw) * 0.25;
-        ctx.fillStyle = "rgba(226,232,240," + tw.toFixed(3) + ")";
+        ctx.fillStyle = min
+          ? getBreakoutTheme() === "light"
+            ? "rgba(10,10,10," + (tw * 0.28).toFixed(3) + ")"
+            : "rgba(255,255,255," + (tw * 0.35).toFixed(3) + ")"
+          : "rgba(226,232,240," + tw.toFixed(3) + ")";
         ctx.fillRect(x, y, 1.5, 1.5);
       }
     } else {
-      ctx.fillStyle = "rgba(226,232,240,0.35)";
+      ctx.fillStyle = min
+        ? getBreakoutTheme() === "light"
+          ? "rgba(10,10,10,0.16)"
+          : "rgba(255,255,255,0.22)"
+        : "rgba(226,232,240,0.35)";
       for (let i = 0; i < this.stars.length; i += 3) {
         const s = this.stars[i];
         ctx.fillRect(s.bx * W, s.by * H, 1.2, 1.2);
       }
     }
 
-    ctx.fillStyle = "rgba(56,189,248,0.12)";
+    ctx.fillStyle = min
+      ? getBreakoutTheme() === "light"
+        ? "rgba(0,0,0,0.05)"
+        : "rgba(255,255,255,0.06)"
+      : "rgba(56,189,248,0.12)";
     for (const d of this.dust) {
       const a = 0.15 + Math.sin(this.t * 0.8 + d.phase) * 0.08;
       ctx.globalAlpha = Math.max(0.06, Math.min(0.35, a));
@@ -345,13 +363,23 @@ export class MenuAttract {
 
     for (const b of this.bricks) {
       if (!b.alive) continue;
-      const c = BRICK_COLORS[b.hue];
-      ctx.fillStyle = c;
-      ctx.globalAlpha = 0.92;
-      ctx.fillRect(b.x, b.y, b.w, b.h);
-      ctx.strokeStyle = "rgba(15,23,42,0.55)";
-      ctx.lineWidth = 1;
-      ctx.strokeRect(b.x + 0.5, b.y + 0.5, b.w - 1, b.h - 1);
+      if (min) {
+        const mc = getMinColors();
+        ctx.fillStyle = b.hue % 2 === 0 ? mc.brickP1Fill : mc.brickP2Fill;
+        ctx.globalAlpha = 0.95;
+        ctx.fillRect(b.x, b.y, b.w, b.h);
+        ctx.strokeStyle = mc.arenaStrokeSoft;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(b.x + 0.5, b.y + 0.5, b.w - 1, b.h - 1);
+      } else {
+        const c = BRICK_COLORS[b.hue];
+        ctx.fillStyle = c;
+        ctx.globalAlpha = 0.92;
+        ctx.fillRect(b.x, b.y, b.w, b.h);
+        ctx.strokeStyle = "rgba(15,23,42,0.55)";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(b.x + 0.5, b.y + 0.5, b.w - 1, b.h - 1);
+      }
       ctx.globalAlpha = 1;
     }
 
@@ -367,7 +395,7 @@ export class MenuAttract {
 
     const bi = this.ballImg;
     const d = this.ballR * 2;
-    if (bi && bi.complete && bi.naturalWidth > 0) {
+    if (!min && bi && bi.complete && bi.naturalWidth > 0) {
       ctx.save();
       ctx.shadowColor = "rgba(56,189,248,0.85)";
       ctx.shadowBlur = this.reduceMotion ? 6 : 14;
@@ -376,10 +404,21 @@ export class MenuAttract {
     } else {
       ctx.beginPath();
       ctx.arc(this.ballX, this.ballY, this.ballR, 0, Math.PI * 2);
-      ctx.fillStyle = "#f8fafc";
-      ctx.shadowColor = "#38bdf8";
-      ctx.shadowBlur = this.reduceMotion ? 0 : 12;
-      ctx.fill();
+      if (min) {
+        const mc = getMinColors();
+        ctx.fillStyle = mc.ball;
+        ctx.strokeStyle = mc.ballStroke;
+        ctx.lineWidth = 2;
+        ctx.shadowColor = "rgba(239,68,68,0.4)";
+        ctx.shadowBlur = this.reduceMotion ? 0 : 10;
+        ctx.fill();
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = "#f8fafc";
+        ctx.shadowColor = "#38bdf8";
+        ctx.shadowBlur = this.reduceMotion ? 0 : 12;
+        ctx.fill();
+      }
       ctx.shadowBlur = 0;
     }
   }

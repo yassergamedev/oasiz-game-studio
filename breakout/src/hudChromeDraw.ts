@@ -1,4 +1,8 @@
-import type { BreakoutUiPack } from "./uiAssets";
+import { getMinColors, isMinimalBreakoutVisual } from "./breakoutMinimalStyle";
+
+/** Matches countdown / score popups (see `main.ts`, `versusBreakoutGame.ts`). */
+const HUD_NUM_FONT_STACK = '"Orbitron",system-ui,sans-serif';
+const HUD_LABEL_FONT_STACK = '"Outfit",system-ui,sans-serif';
 
 export interface HudLayout {
   topInset: number;
@@ -28,113 +32,91 @@ export function computeHudLayout(viewW: number, viewH: number, pointerCoarse: bo
   };
 }
 
-function imgWidthAtHeight(img: HTMLImageElement, height: number): number {
-  if (!img.complete || img.naturalHeight <= 0) return 0;
-  return (img.naturalWidth * height) / img.naturalHeight;
-}
-
-function drawImgHeight(
-  ctx: CanvasRenderingContext2D,
-  img: HTMLImageElement,
-  x: number,
-  y: number,
-  height: number,
-): number {
-  if (!img.complete || img.naturalWidth <= 0) return 0;
-  const sc = height / img.naturalHeight;
-  const w = img.naturalWidth * sc;
-  ctx.drawImage(img, x, y, w, height);
+function measureHudLabelText(ctx: CanvasRenderingContext2D, text: string, fontPx: number, weight: number): number {
+  const prev = ctx.font;
+  ctx.font = String(weight) + " " + String(fontPx) + "px " + HUD_LABEL_FONT_STACK;
+  const w = ctx.measureText(text).width;
+  ctx.font = prev;
   return w;
 }
 
-function measureDigitsWidth(digits: HTMLImageElement[], str: string, digitH: number, gap: number): number {
-  let w = 0;
-  for (let i = 0; i < str.length; i++) {
-    const d = parseInt(str[i], 10);
-    const img = digits[d];
-    if (!img?.naturalHeight) continue;
-    w += imgWidthAtHeight(img, digitH);
-    if (i < str.length - 1) w += gap;
-  }
+function measureHudNumericText(ctx: CanvasRenderingContext2D, text: string, fontPx: number, weight: number): number {
+  const prev = ctx.font;
+  ctx.font = String(weight) + " " + String(fontPx) + "px " + HUD_NUM_FONT_STACK;
+  const w = ctx.measureText(text).width;
+  ctx.font = prev;
   return w;
 }
 
-function drawDigitChars(
+function drawHudNumericText(
   ctx: CanvasRenderingContext2D,
-  digits: HTMLImageElement[],
-  str: string,
+  text: string,
   x: number,
-  y: number,
-  digitH: number,
-  gap: number,
+  yMid: number,
+  fontPx: number,
+  weight: number,
+  fillStyle: string,
 ): number {
-  let cx = x;
-  for (let i = 0; i < str.length; i++) {
-    const d = parseInt(str[i], 10);
-    if (Number.isNaN(d) || !digits[d]) continue;
-    const w = drawImgHeight(ctx, digits[d], cx, y, digitH);
-    cx += w;
-    if (i < str.length - 1) cx += gap;
-  }
-  return cx;
+  ctx.save();
+  ctx.font = String(weight) + " " + String(fontPx) + "px " + HUD_NUM_FONT_STACK;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = fillStyle;
+  ctx.fillText(text, x, yMid);
+  const w = ctx.measureText(text).width;
+  ctx.restore();
+  return w;
 }
 
-function drawDigitString(
-  ctx: CanvasRenderingContext2D,
-  digits: HTMLImageElement[],
-  value: number,
-  x: number,
-  y: number,
-  digitH: number,
-  gap: number,
-): number {
-  const str = String(Math.max(0, Math.floor(value)));
-  let cx = x;
-  for (let i = 0; i < str.length; i++) {
-    const d = parseInt(str[i], 10);
-    const img = digits[d];
-    if (!img) continue;
-    const w = drawImgHeight(ctx, img, cx, y, digitH);
-    cx += w;
-    if (i < str.length - 1) cx += gap;
-  }
-  return cx;
-}
-
+/** Classic single-player HUD (sprite digits removed — typography only). */
 export function drawHudChrome(
   ctx: CanvasRenderingContext2D,
-  pack: BreakoutUiPack,
   layout: HudLayout,
   stats: { score: number; lives: number; levelStr: string },
 ): void {
-  const { digits, lv, xIcon } = pack;
-  if (!digits.length) return;
-
   ctx.save();
 
-  const gap = Math.max(2, layout.digitH * 0.08);
-  const digitY = layout.frameY + (layout.frameH - layout.digitH) / 2;
+  const fontPx = Math.max(16, layout.digitH * 0.82);
+  const labelPx = Math.max(11, layout.digitH * 0.38);
+  const gap = Math.max(8, layout.digitH * 0.2);
+  const yMid = layout.frameY + layout.frameH * 0.5;
+  const fillNum = "rgba(248, 250, 252, 0.96)";
+  const fillLabel = "rgba(148, 163, 184, 0.95)";
 
   const padX = layout.frameW * 0.06;
-  drawDigitString(ctx, digits, stats.score, padX, digitY, layout.digitH, gap);
+  const scoreStr = String(Math.max(0, Math.floor(stats.score)));
+  drawHudNumericText(ctx, scoreStr, padX, yMid, fontPx, 800, fillNum);
 
   const levelDigits = stats.levelStr.replace(/\D/g, "") || "1";
-  const lvW = imgWidthAtHeight(lv, layout.digitH);
-  const lvlW = measureDigitsWidth(digits, levelDigits, layout.digitH, gap);
-  const centerW = lvW + gap * 2 + lvlW;
+  const lvText = "LV";
+  const lvW = measureHudLabelText(ctx, lvText, labelPx, 700);
+  const lvlW = measureHudNumericText(ctx, levelDigits, fontPx, 800);
+  const centerW = lvW + gap + lvlW;
   let cx = (layout.frameW - centerW) / 2;
-  drawImgHeight(ctx, lv, cx, digitY, layout.digitH);
-  cx += lvW + gap * 2;
-  drawDigitChars(ctx, digits, levelDigits, cx, digitY, layout.digitH, gap);
+  ctx.save();
+  ctx.font = "700 " + String(labelPx) + "px " + HUD_LABEL_FONT_STACK;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = fillLabel;
+  ctx.fillText(lvText, cx, yMid);
+  ctx.restore();
+  cx += lvW + gap;
+  drawHudNumericText(ctx, levelDigits, cx, yMid, fontPx, 800, fillNum);
 
   const livesStr = String(Math.max(0, Math.floor(stats.lives)));
-  const livesDigitsW = measureDigitsWidth(digits, livesStr, layout.digitH, gap);
-  const xW = imgWidthAtHeight(xIcon, layout.digitH);
-  const groupW = livesDigitsW + gap + xW;
+  const livesW = measureHudNumericText(ctx, livesStr, fontPx, 800);
+  const xW = measureHudLabelText(ctx, "×", labelPx, 600);
+  const groupW = livesW + gap * 0.5 + xW;
   let rx = layout.frameW - padX - groupW;
-  drawDigitString(ctx, digits, stats.lives, rx, digitY, layout.digitH, gap);
-  rx += livesDigitsW + gap;
-  drawImgHeight(ctx, xIcon, rx, digitY, layout.digitH);
+  drawHudNumericText(ctx, livesStr, rx, yMid, fontPx, 800, fillNum);
+  rx += livesW + gap * 0.5;
+  ctx.save();
+  ctx.font = "600 " + String(labelPx) + "px " + HUD_LABEL_FONT_STACK;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = fillLabel;
+  ctx.fillText("×", rx, yMid);
+  ctx.restore();
 
   ctx.restore();
 }
@@ -172,43 +154,22 @@ export function computeVersusHudLayout(
   };
 }
 
-function drawDigitStringVersus(
-  ctx: CanvasRenderingContext2D,
-  digits: HTMLImageElement[],
-  value: number,
-  x: number,
-  y: number,
-  digitH: number,
-  gap: number,
-): void {
+function measureVersusHudNumber(ctx: CanvasRenderingContext2D, value: number, fontPx: number, weight: number): number {
   const str = String(Math.max(0, Math.floor(value)));
-  let cx = x;
-  for (let i = 0; i < str.length; i++) {
-    const d = parseInt(str[i], 10);
-    const img = digits[d];
-    if (!img) continue;
-    const w = drawImgHeight(ctx, img, cx, y, digitH);
-    cx += w;
-    if (i < str.length - 1) cx += gap;
-  }
+  return measureHudNumericText(ctx, str, fontPx, weight);
 }
 
-function measureDigitStringVersusWidth(
-  digits: HTMLImageElement[],
+function drawVersusHudNumber(
+  ctx: CanvasRenderingContext2D,
   value: number,
-  digitH: number,
-  gap: number,
-): number {
+  x: number,
+  yMid: number,
+  fontPx: number,
+  weight: number,
+  fillStyle: string,
+): void {
   const str = String(Math.max(0, Math.floor(value)));
-  let w = 0;
-  for (let i = 0; i < str.length; i++) {
-    const d = parseInt(str[i], 10);
-    const img = digits[d];
-    if (!img?.naturalHeight) continue;
-    w += imgWidthAtHeight(img, digitH);
-    if (i < str.length - 1) w += gap;
-  }
-  return w;
+  drawHudNumericText(ctx, str, x, yMid, fontPx, weight, fillStyle);
 }
 
 /**
@@ -234,7 +195,6 @@ export function computeVersusTopPillLayoutY(layout: VersusHudLayout, arenaTop: n
 
 export function drawVersusHudChrome(
   ctx: CanvasRenderingContext2D,
-  pack: BreakoutUiPack,
   layout: VersusHudLayout,
   stats: { r1: number; r2: number; s1: number; s2: number },
   viewW: number,
@@ -242,13 +202,12 @@ export function drawVersusHudChrome(
   arenaTop: number,
   arenaBottom: number,
 ): void {
-  const { digits } = pack;
-  if (!digits.length) return;
-  const gap = Math.max(2, layout.digitH * 0.08);
   const w = viewW;
   const h = viewH;
   const pad = w * 0.05;
-  const scoreH = Math.max(14, layout.digitH * 0.85);
+  const remFontPx = Math.max(15, layout.digitH * 0.78);
+  const scoreFontPx = Math.max(14, layout.digitH * 0.72);
+  const ptsLabPx = Math.max(9, layout.digitH * 0.28);
   const strokeGlowPad = 20;
   const uiGap = 12;
   const pillBottomExtent = layout.digitH + 6;
@@ -257,24 +216,36 @@ export function drawVersusHudChrome(
 
   const { topY } = computeVersusTopPillLayoutY(layout, arenaTop);
 
-  ctx.fillStyle = "rgba(167, 139, 250, 0.22)";
+  const min = isMinimalBreakoutVisual();
+  const mc = min ? getMinColors() : null;
+  const yMidRemTop = topY + layout.digitH * 0.5;
+  const yMidScoreTop = topY + (layout.digitH - scoreFontPx) * 0.35 + scoreFontPx * 0.52;
+
+  ctx.fillStyle = min && mc ? mc.pillFill : "rgba(220, 38, 38, 0.18)";
   pathHudRound(ctx, pad, topY - 4, w - pad * 2, layout.digitH + 10, 10);
   ctx.fill();
-  ctx.strokeStyle = "rgba(196, 181, 253, 0.55)";
+  ctx.strokeStyle = min && mc ? mc.pillStroke : "rgba(248, 113, 113, 0.55)";
   ctx.lineWidth = 2;
   ctx.stroke();
-  ctx.fillStyle = "rgba(226, 232, 240, 0.9)";
-  ctx.textAlign = "left";
-  ctx.textBaseline = "middle";
-  drawDigitStringVersus(ctx, digits, stats.r2, pad + 12, topY, layout.digitH, gap);
-  const s2w = measureDigitStringVersusWidth(digits, stats.s2, scoreH, gap);
+  const remFillTop = min && mc ? mc.textMuted : "rgba(226, 232, 240, 0.9)";
+  const scoreFillTop = min && mc ? mc.text : "rgba(248, 250, 252, 0.95)";
+  const pillTopH = layout.digitH + 10;
+  const pillTopCx = w * 0.5;
+  const pillTopCy = topY - 4 + pillTopH * 0.5;
+  ctx.save();
+  ctx.translate(pillTopCx, pillTopCy);
+  ctx.rotate(Math.PI);
+  ctx.translate(-pillTopCx, -pillTopCy);
+  drawVersusHudNumber(ctx, stats.r2, pad + 12, yMidRemTop, remFontPx, 800, remFillTop);
+  const s2w = measureVersusHudNumber(ctx, stats.s2, scoreFontPx, 800);
   const ptsLab = "PTS";
-  ctx.font = "600 " + String(Math.max(9, layout.digitH * 0.28)) + "px Outfit,system-ui,sans-serif";
-  ctx.fillStyle = "rgba(196, 181, 253, 0.75)";
+  ctx.font = "600 " + String(ptsLabPx) + "px " + HUD_LABEL_FONT_STACK;
+  ctx.fillStyle = min && mc ? mc.accent : "rgba(254, 202, 202, 0.85)";
   ctx.textAlign = "right";
-  ctx.fillText(ptsLab, w - pad - 10 - s2w - gap * 2, topY + layout.digitH * 0.45);
-  ctx.fillStyle = "rgba(248, 250, 252, 0.95)";
-  drawDigitStringVersus(ctx, digits, stats.s2, w - pad - 10 - s2w, topY + (layout.digitH - scoreH) * 0.35, scoreH, gap);
+  ctx.textBaseline = "middle";
+  ctx.fillText(ptsLab, w - pad - 10 - s2w - 10, topY + layout.digitH * 0.45);
+  drawVersusHudNumber(ctx, stats.s2, w - pad - 10 - s2w, yMidScoreTop, scoreFontPx, 800, scoreFillTop);
+  ctx.restore();
 
   const minPillTop = arenaBottom + uiGap + strokeGlowPad;
   const maxPillBottomScreen = h - layout.bottomSafeInset - 6;
@@ -283,22 +254,26 @@ export function drawVersusHudChrome(
     botY = maxPillBottomScreen - pillBottomExtent;
   }
   botY = Math.max(minPillTop + 4, botY);
-  ctx.fillStyle = "rgba(56, 189, 248, 0.2)";
+  const yMidRemBot = botY + layout.digitH * 0.5;
+  const yMidScoreBot = botY + (layout.digitH - scoreFontPx) * 0.35 + scoreFontPx * 0.52;
+
+  ctx.fillStyle = min && mc ? mc.pillFill : "rgba(15, 23, 42, 0.35)";
   pathHudRound(ctx, pad, botY - 4, w - pad * 2, layout.digitH + 10, 10);
   ctx.fill();
-  ctx.strokeStyle = "rgba(125, 211, 252, 0.55)";
+  ctx.strokeStyle = min && mc ? mc.pillStroke : "rgba(239, 68, 68, 0.5)";
   ctx.lineWidth = 2;
   ctx.stroke();
-  ctx.fillStyle = "rgba(226, 232, 240, 0.9)";
+  const remFillBot = min && mc ? mc.textMuted : "rgba(226, 232, 240, 0.9)";
+  const scoreFillBot = min && mc ? mc.text : "rgba(248, 250, 252, 0.95)";
   ctx.textAlign = "left";
-  drawDigitStringVersus(ctx, digits, stats.r1, pad + 12, botY, layout.digitH, gap);
-  const s1w = measureDigitStringVersusWidth(digits, stats.s1, scoreH, gap);
-  ctx.font = "600 " + String(Math.max(9, layout.digitH * 0.28)) + "px Outfit,system-ui,sans-serif";
-  ctx.fillStyle = "rgba(125, 211, 252, 0.78)";
+  drawVersusHudNumber(ctx, stats.r1, pad + 12, yMidRemBot, remFontPx, 800, remFillBot);
+  const s1w = measureVersusHudNumber(ctx, stats.s1, scoreFontPx, 800);
+  ctx.font = "600 " + String(ptsLabPx) + "px " + HUD_LABEL_FONT_STACK;
+  ctx.fillStyle = min && mc ? mc.accent : "rgba(239, 68, 68, 0.82)";
   ctx.textAlign = "right";
-  ctx.fillText(ptsLab, w - pad - 10 - s1w - gap * 2, botY + layout.digitH * 0.45);
-  ctx.fillStyle = "rgba(248, 250, 252, 0.95)";
-  drawDigitStringVersus(ctx, digits, stats.s1, w - pad - 10 - s1w, botY + (layout.digitH - scoreH) * 0.35, scoreH, gap);
+  ctx.textBaseline = "middle";
+  ctx.fillText(ptsLab, w - pad - 10 - s1w - 10, botY + layout.digitH * 0.45);
+  drawVersusHudNumber(ctx, stats.s1, w - pad - 10 - s1w, yMidScoreBot, scoreFontPx, 800, scoreFillBot);
 
   ctx.restore();
 }

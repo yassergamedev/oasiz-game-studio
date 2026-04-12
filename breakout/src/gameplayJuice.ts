@@ -1,4 +1,5 @@
 import type { BrickHue, BrickSizeTier } from "./brickAssets";
+import { isMinimalBreakoutVisual } from "./breakoutMinimalStyle";
 
 export type GameplayJuiceEvent =
   | { type: "brick_chip"; x: number; y: number; hue: BrickHue }
@@ -40,6 +41,12 @@ interface Particle {
   cg: number;
   cb: number;
   drag: number;
+  /** Glass shard: rotated quad; omit for soft radial sparks. */
+  kind?: "shard";
+  ang?: number;
+  spin?: number;
+  len?: number;
+  wid?: number;
 }
 
 interface ShockRing {
@@ -96,7 +103,7 @@ function pathRoundRectJuice(
   c.closePath();
 }
 
-const MAX_PARTICLES = 720;
+const MAX_PARTICLES = 960;
 const MAX_RINGS = 48;
 const PADDLE_TRAIL_CAP = 36;
 /** Trail segments older than this are dropped; draw alpha also fades by age. */
@@ -112,8 +119,14 @@ interface PaddleTrailSeg {
   t: number;
 }
 
+export interface GameplayJuiceOptions {
+  reduceMotion: boolean;
+  minimalVisual?: boolean;
+}
+
 export class GameplayJuice {
   private reduceMotion: boolean;
+  private minimalVisual: boolean;
   private w = 0;
   private h = 0;
   private particles: Particle[] = [];
@@ -132,8 +145,9 @@ export class GameplayJuice {
   private possessionRecoverElapsedMs = 0;
   private static readonly POSSESSION_ZOOM_MS = 430;
 
-  constructor(opts: { reduceMotion: boolean }) {
+  constructor(opts: GameplayJuiceOptions) {
     this.reduceMotion = opts.reduceMotion;
+    this.minimalVisual = opts.minimalVisual ?? isMinimalBreakoutVisual();
   }
 
   setReduceMotion(v: boolean): void {
@@ -315,7 +329,8 @@ export class GameplayJuice {
 
     switch (ev.type) {
       case "brick_chip":
-        this.spawnBrickSparks(ev.x, ev.y, ev.hue, 10, 90, 140);
+        this.spawnBrickSparks(ev.x, ev.y, ev.hue, 8, 70, 130);
+        this.spawnGlassShards(ev.x, ev.y, ev.hue, 14, 55, 160, "chip");
         this.addShake(1.2);
         this.hitFlash = Math.min(0.45, this.hitFlash + 0.04);
         break;
@@ -323,7 +338,8 @@ export class GameplayJuice {
         const tierMul = ev.tier === "big" ? 1.35 : ev.tier === "mid" ? 1.1 : 1;
         const n = Math.floor(26 * tierMul);
         this.spawnBrickSparks(ev.x, ev.y, ev.hue, n, 160, 320);
-        this.spawnDebris(ev.x, ev.y, ev.hue, Math.floor(14 * tierMul));
+        this.spawnGlassShards(ev.x, ev.y, ev.hue, Math.floor(52 * tierMul), 120, 380, "break");
+        this.spawnDebris(ev.x, ev.y, ev.hue, Math.floor(18 * tierMul));
         this.pushRing({
           x: ev.x,
           y: ev.y,
@@ -406,9 +422,9 @@ export class GameplayJuice {
           22,
           60,
           180,
-          ev.player === 1 ? 56 : 167,
-          ev.player === 1 ? 189 : 139,
-          ev.player === 1 ? 248 : 250,
+          ev.player === 1 ? 38 : 220,
+          ev.player === 1 ? 38 : 38,
+          ev.player === 1 ? 42 : 38,
         );
         break;
       case "super_reverse":
@@ -416,7 +432,7 @@ export class GameplayJuice {
         this.hitFlash = Math.min(1, this.hitFlash + 0.35);
         this.levelCelebrationT = 0.9;
         this.spawnRadial(this.w * 0.5, this.h * 0.5, 90, 100, 340, 232, 121, 249);
-        this.spawnRadial(this.w * 0.5, this.h * 0.5, 60, 150, 400, 56, 189, 248);
+        this.spawnRadial(this.w * 0.5, this.h * 0.5, 60, 150, 400, 220, 38, 38);
         break;
       case "super_convert":
         this.addShake(16);
@@ -427,9 +443,9 @@ export class GameplayJuice {
           100,
           120,
           400,
-          ev.player === 1 ? 56 : 192,
-          ev.player === 1 ? 189 : 132,
-          ev.player === 1 ? 248 : 252,
+          ev.player === 1 ? 42 : 220,
+          ev.player === 1 ? 42 : 38,
+          ev.player === 1 ? 46 : 38,
         );
         break;
       case "versus_win":
@@ -459,9 +475,9 @@ export class GameplayJuice {
           26,
           90,
           220,
-          ev.player === 1 ? 56 : 192,
-          ev.player === 1 ? 189 : 132,
-          ev.player === 1 ? 248 : 252,
+          ev.player === 1 ? 40 : 220,
+          ev.player === 1 ? 40 : 38,
+          ev.player === 1 ? 44 : 38,
         );
         break;
       }
@@ -471,8 +487,56 @@ export class GameplayJuice {
   }
 
   private rgb(hue: BrickHue): { cr: number; cg: number; cb: number } {
+    if (this.minimalVisual) {
+      if (hue === "blue") return { cr: 28, cg: 28, cb: 32 };
+      if (hue === "violet") return { cr: 220, cg: 38, cb: 38 };
+    }
     const [cr, cg, cb] = HUE_RGB[hue];
     return { cr, cg, cb };
+  }
+
+  /**
+   * Sharp glass splinters: outburst velocity, spin, fall with gravity.
+   * `burst`: chip = small spray; break = heavy shatter ring.
+   */
+  private spawnGlassShards(
+    x: number,
+    y: number,
+    hue: BrickHue,
+    count: number,
+    speedMin: number,
+    speedMax: number,
+    burst: "chip" | "break",
+  ): void {
+    const { cr, cg, cb } = this.rgb(hue);
+    const brighten = (n: number): number => Math.min(255, n + 35 + Math.floor(Math.random() * 40));
+    for (let i = 0; i < count; i++) {
+      const a = (i / Math.max(1, count)) * Math.PI * 2 + (Math.random() - 0.5) * (burst === "break" ? 1.4 : 0.9);
+      const sp = speedMin + Math.random() * (speedMax - speedMin);
+      const len = burst === "break" ? 5 + Math.random() * 16 : 3 + Math.random() * 9;
+      const wid = 0.9 + Math.random() * 2.4;
+      const spin = (Math.random() - 0.5) * (burst === "break" ? 16 : 11);
+      this.pushParticle({
+        x: x + (Math.random() - 0.5) * (burst === "break" ? 14 : 8),
+        y: y + (Math.random() - 0.5) * (burst === "break" ? 14 : 8),
+        vx: Math.cos(a) * sp,
+        vy: Math.sin(a) * sp * (0.85 + Math.random() * 0.25),
+        ay: 280 + Math.random() * 220,
+        life: 0,
+        maxLife: burst === "break" ? 0.52 + Math.random() * 0.55 : 0.32 + Math.random() * 0.38,
+        r0: 0,
+        r1: 0,
+        cr: brighten(cr),
+        cg: brighten(cg),
+        cb: brighten(cb),
+        drag: 1.35 + Math.random() * 0.85,
+        kind: "shard",
+        ang: Math.random() * Math.PI * 2,
+        spin,
+        len,
+        wid,
+      });
+    }
   }
 
   private spawnBrickSparks(
@@ -697,6 +761,9 @@ export class GameplayJuice {
       p.vy += p.ay * dt;
       p.x += p.vx * dt;
       p.y += p.vy * dt;
+      if (p.kind === "shard" && p.spin !== undefined && p.ang !== undefined) {
+        p.ang += p.spin * dt;
+      }
       if (p.life >= p.maxLife) this.particles.splice(i, 1);
     }
 
@@ -784,7 +851,7 @@ export class GameplayJuice {
   }
 
   drawStars(ctx: CanvasRenderingContext2D, nowMs: number): void {
-    if (this.stars.length === 0) return;
+    if (this.stars.length === 0 || this.minimalVisual) return;
     const w = this.w;
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
@@ -860,9 +927,15 @@ export class GameplayJuice {
         let alpha = 0.5 * tf;
         if (alpha < 0.02) continue;
         const along = 1;
-        const cr = slot === 0 ? Math.floor(36 + along * 95) : Math.floor(120 + along * 75);
-        const cg = slot === 0 ? Math.floor(150 + along * 88) : Math.floor(90 + along * 62);
-        const cb = 255;
+        const cr = this.minimalVisual
+          ? slot === 0
+            ? 42
+            : 228
+          : slot === 0
+            ? Math.floor(36 + along * 95)
+            : Math.floor(120 + along * 75);
+        const cg = this.minimalVisual ? (slot === 0 ? 42 : 40) : slot === 0 ? Math.floor(150 + along * 88) : Math.floor(90 + along * 62);
+        const cb = this.minimalVisual ? (slot === 0 ? 46 : 38) : 255;
         const x = seg.x - seg.w / 2;
         const y = seg.y - seg.h / 2;
         const rr = Math.min(8, seg.h * 0.45);
@@ -892,14 +965,34 @@ export class GameplayJuice {
             5.5,
             glow ? (a.h + b.h) * 0.62 : (a.h + b.h) * 0.46,
           );
-          const cr = slot === 0 ? Math.floor(40 + along * 92) : Math.floor(125 + along * 72);
-          const cg = slot === 0 ? Math.floor(155 + along * 85) : Math.floor(95 + along * 58);
-          const cb = 255;
+          const cr = this.minimalVisual
+            ? slot === 0
+              ? Math.floor(36 + along * 44)
+              : Math.floor(218 + along * 32)
+            : slot === 0
+              ? Math.floor(40 + along * 92)
+              : Math.floor(125 + along * 72);
+          const cg = this.minimalVisual
+            ? slot === 0
+              ? Math.floor(36 + along * 40)
+              : Math.floor(34 + along * 28)
+            : slot === 0
+              ? Math.floor(155 + along * 85)
+              : Math.floor(95 + along * 58);
+          const cb = this.minimalVisual
+            ? slot === 0
+              ? Math.floor(40 + along * 36)
+              : Math.floor(36 + along * 22)
+            : 255;
           ctx.strokeStyle =
             "rgba(" + String(cr) + "," + String(cg) + "," + String(cb) + "," + String(alpha) + ")";
           ctx.lineWidth = lw;
           if (!glow) {
-            ctx.shadowColor = slot === 0 ? "rgba(56, 189, 248, 0.35)" : "rgba(167, 139, 250, 0.32)";
+            ctx.shadowColor = this.minimalVisual
+              ? "rgba(239, 68, 68, 0.35)"
+              : slot === 0
+                ? "rgba(239, 68, 68, 0.32)"
+                : "rgba(220, 38, 38, 0.3)";
             ctx.shadowBlur = 10;
           } else {
             ctx.shadowBlur = 0;
@@ -916,7 +1009,7 @@ export class GameplayJuice {
   }
 
   drawAmbient(ctx: CanvasRenderingContext2D, nowMs: number): void {
-    if (this.reduceMotion || this.ambient.length === 0) return;
+    if (this.reduceMotion || this.minimalVisual || this.ambient.length === 0) return;
     const w = this.w;
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
@@ -980,9 +1073,14 @@ export class GameplayJuice {
     const rim = this.rimPulse;
     if (rim > 0.01) {
       ctx.save();
-      ctx.strokeStyle = "rgba(250, 204, 21, " + String(rim * 0.45) + ")";
+      if (this.minimalVisual) {
+        ctx.strokeStyle = "rgba(239, 68, 68, " + String(rim * 0.5) + ")";
+        ctx.shadowColor = "rgba(239, 68, 68, 0.45)";
+      } else {
+        ctx.strokeStyle = "rgba(250, 204, 21, " + String(rim * 0.45) + ")";
+        ctx.shadowColor = "rgba(250, 204, 21, 0.55)";
+      }
       ctx.lineWidth = 3 + rim * 4;
-      ctx.shadowColor = "rgba(250, 204, 21, 0.55)";
       ctx.shadowBlur = 18 * rim;
       ctx.strokeRect(wallLeft - 2, wallTop - 2, wallW + 4, wallH + 4);
       ctx.restore();
@@ -993,9 +1091,15 @@ export class GameplayJuice {
       ctx.save();
       const wave = Math.sin(celeb * 22) * 0.5 + 0.5;
       const g = ctx.createLinearGradient(0, 0, this.w, this.h);
-      g.addColorStop(0, "rgba(250, 204, 21, " + String(0.06 * wave * celeb) + ")");
-      g.addColorStop(0.5, "rgba(56, 189, 248, " + String(0.05 * wave * celeb) + ")");
-      g.addColorStop(1, "rgba(167, 139, 250, " + String(0.06 * wave * celeb) + ")");
+      if (this.minimalVisual) {
+        g.addColorStop(0, "rgba(255, 255, 255, " + String(0.05 * wave * celeb) + ")");
+        g.addColorStop(0.5, "rgba(239, 68, 68, " + String(0.06 * wave * celeb) + ")");
+        g.addColorStop(1, "rgba(255, 255, 255, " + String(0.04 * wave * celeb) + ")");
+      } else {
+        g.addColorStop(0, "rgba(250, 204, 21, " + String(0.06 * wave * celeb) + ")");
+        g.addColorStop(0.5, "rgba(56, 189, 248, " + String(0.05 * wave * celeb) + ")");
+        g.addColorStop(1, "rgba(167, 139, 250, " + String(0.06 * wave * celeb) + ")");
+      }
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, this.w, this.h);
       ctx.restore();
@@ -1004,8 +1108,38 @@ export class GameplayJuice {
 
   drawParticles(ctx: CanvasRenderingContext2D): void {
     ctx.save();
+    ctx.globalCompositeOperation = "source-over";
+    ctx.lineJoin = "miter";
+    for (const p of this.particles) {
+      if (p.kind !== "shard") continue;
+      const t = p.life / p.maxLife;
+      const u = Math.min(1, t);
+      const fade = Math.sin(Math.PI * u) * (1 - u * 0.08);
+      const a = Math.min(1, fade * 0.92);
+      const L = p.len ?? 5;
+      const W = p.wid ?? 1.5;
+      const ang = p.ang ?? 0;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(ang);
+      const g = ctx.createLinearGradient(-L * 0.5, 0, L * 0.5, 0);
+      g.addColorStop(0, "rgba(255,255,255," + String(0.12 + a * 0.35) + ")");
+      g.addColorStop(
+        0.45,
+        "rgba(" + String(p.cr) + "," + String(p.cg) + "," + String(p.cb) + "," + String(0.55 + a * 0.35) + ")",
+      );
+      g.addColorStop(1, "rgba(255,255,255," + String(0.08 + a * 0.2) + ")");
+      ctx.fillStyle = g;
+      ctx.fillRect(-L * 0.5, -W * 0.5, L, W);
+      ctx.strokeStyle = "rgba(255,255,255," + String(0.25 + a * 0.45) + ")";
+      ctx.lineWidth = 0.85;
+      ctx.strokeRect(-L * 0.5, -W * 0.5, L, W);
+      ctx.restore();
+    }
+
     ctx.globalCompositeOperation = "lighter";
     for (const p of this.particles) {
+      if (p.kind === "shard") continue;
       const t = p.life / p.maxLife;
       const u = Math.min(1, t);
       const fade = Math.sin(Math.PI * u) * (1 - u * 0.12);
