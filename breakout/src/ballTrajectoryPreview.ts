@@ -1,7 +1,7 @@
 /**
- * Simple dotted aim line: first segment to the next brick or side wall,
- * one bounce (same rules as versus for wall / dominant-axis brick), then
- * a short straight segment (capped by playfield clip in main).
+ * Dotted aim line: raycast to the next brick, side wall, or paddle face, one bounce
+ * (brick/wall: dominant-axis reflection; paddle: same offset angle as versus paddles), then
+ * a second segment toward bricks, paddles, walls, or playfield clip (capped at three points).
  */
 
 export interface TrajectoryBrick {
@@ -10,6 +10,13 @@ export interface TrajectoryBrick {
   y: number;
   w: number;
   h: number;
+}
+
+/** Bottom (P1) / top (P2) paddle hit as a horizontal segment at ball-center depth. */
+export interface TrajectoryPaddleFace {
+  cx: number;
+  yFace: number;
+  halfW: number;
 }
 
 export interface TrajectoryInput {
@@ -27,6 +34,10 @@ export interface TrajectoryInput {
   clipMinY: number;
   clipMaxY: number;
   bricks: TrajectoryBrick[];
+  /** When set, downward rays can hit P1 paddle top face (toward bottom player). */
+  paddleBottom?: TrajectoryPaddleFace;
+  /** When set, upward rays can hit P2 paddle bottom face (toward top player). */
+  paddleTop?: TrajectoryPaddleFace;
 }
 
 function normSpeed(vx: number, vy: number, target: number): { vx: number; vy: number } {
@@ -151,7 +162,8 @@ function rayVerticalWall(
 
 type HitKind =
   | { kind: "wall"; t: number }
-  | { kind: "brick"; t: number; nx: number; ny: number };
+  | { kind: "brick"; t: number; nx: number; ny: number }
+  | { kind: "paddle"; t: number; face: "bottom" | "top" };
 
 function hitTime(h: HitKind | null): number {
   return h ? h.t : Infinity;
@@ -202,8 +214,156 @@ function rayExitBox(
   return tExit === Infinity ? 400 : tExit;
 }
 
+/** Ball center moving down (uy>0) hits horizontal segment at yLine within paddle width + r. */
+function rayPaddleTopFaceFromAbove(
+  ox: number,
+  oy: number,
+  ux: number,
+  uy: number,
+  ballR: number,
+  yLine: number,
+  cx: number,
+  halfW: number,
+): number | null {
+  if (uy < 1e-6) return null;
+  if (oy > yLine - 1e-2) return null;
+  const t = (yLine - oy) / uy;
+  if (t < 1e-3) return null;
+  const x = ox + t * ux;
+  const minX = cx - halfW - ballR;
+  const maxX = cx + halfW + ballR;
+  if (x < minX - 1e-2 || x > maxX + 1e-2) return null;
+  return t;
+}
+
+/** Ball center moving up (uy<0) hits horizontal segment at yLine within paddle width + r. */
+function rayPaddleBottomFaceFromBelow(
+  ox: number,
+  oy: number,
+  ux: number,
+  uy: number,
+  ballR: number,
+  yLine: number,
+  cx: number,
+  halfW: number,
+): number | null {
+  if (uy > -1e-6) return null;
+  if (oy < yLine + 1e-2) return null;
+  const t = (yLine - oy) / uy;
+  if (t < 1e-3) return null;
+  const x = ox + t * ux;
+  const minX = cx - halfW - ballR;
+  const maxX = cx + halfW + ballR;
+  if (x < minX - 1e-2 || x > maxX + 1e-2) return null;
+  return t;
+}
+
+function collectNextHit(
+  ox: number,
+  oy: number,
+  ux: number,
+  uy: number,
+  input: TrajectoryInput,
+  ballR: number,
+  includeBricks: boolean,
+): HitKind | null {
+  let best: HitKind | null = null;
+
+  const tL = rayVerticalWall(ox, oy, ux, uy, input.wallLeft + ballR, input.wallYTop, input.wallYBot);
+  if (tL !== null && ux < -1e-6 && tL < hitTime(best) - 1e-4) best = { kind: "wall", t: tL };
+
+  const tR = rayVerticalWall(ox, oy, ux, uy, input.wallRight - ballR, input.wallYTop, input.wallYBot);
+  if (tR !== null && ux > 1e-6 && tR < hitTime(best) - 1e-4) best = { kind: "wall", t: tR };
+
+  if (includeBricks) {
+    for (const b of input.bricks) {
+      const hit = rayExpandedAabbEnter(ox, oy, ux, uy, b.x, b.y, b.w, b.h, ballR);
+      if (hit && hit.t < hitTime(best) - 1e-4) {
+        best = { kind: "brick", t: hit.t, nx: hit.nx, ny: hit.ny };
+      }
+    }
+  }
+
+  const pb = input.paddleBottom;
+  if (pb) {
+    const tP = rayPaddleTopFaceFromAbove(ox, oy, ux, uy, ballR, pb.yFace, pb.cx, pb.halfW);
+    if (tP !== null && tP < hitTime(best) - 1e-4) {
+      best = { kind: "paddle", t: tP, face: "bottom" };
+    }
+  }
+  const pt = input.paddleTop;
+  if (pt) {
+    const tP2 = rayPaddleBottomFaceFromBelow(ox, oy, ux, uy, ballR, pt.yFace, pt.cx, pt.halfW);
+    if (tP2 !== null && tP2 < hitTime(best) - 1e-4) {
+      best = { kind: "paddle", t: tP2, face: "top" };
+    }
+  }
+  return best;
+}
+
+/** Matches `reflectBottomPaddle` in versus (hit position along paddle width). */
+function velocityAfterBottomPaddle(
+  impactBallCenterX: number,
+  paddleCx: number,
+  halfW: number,
+  speed: number,
+): { vx: number; vy: number } {
+  const w = Math.max(1e-6, halfW * 2);
+  const t = (impactBallCenterX - (paddleCx - halfW)) / w;
+  const clampedT = Math.max(0, Math.min(1, t));
+  const angle = Math.PI * (0.15 + clampedT * 0.7);
+  let vx = Math.cos(angle) * speed;
+  let vy = -Math.abs(Math.sin(angle) * speed);
+  return normSpeed(vx, vy, speed);
+}
+
+/** Matches `reflectTopPaddle` in versus. */
+function velocityAfterTopPaddle(
+  impactBallCenterX: number,
+  paddleCx: number,
+  halfW: number,
+  speed: number,
+): { vx: number; vy: number } {
+  const w = Math.max(1e-6, halfW * 2);
+  const t = (impactBallCenterX - (paddleCx - halfW)) / w;
+  const clampedT = Math.max(0, Math.min(1, t));
+  const angle = Math.PI * (0.15 + clampedT * 0.7);
+  let vx = Math.cos(angle) * speed;
+  let vy = Math.abs(Math.sin(angle) * speed);
+  return normSpeed(vx, vy, speed);
+}
+
+function applyBounceAtHit(
+  rayOx: number,
+  rayOy: number,
+  rayUx: number,
+  rayUy: number,
+  vx: number,
+  vy: number,
+  hit: HitKind,
+  speed: number,
+  input: TrajectoryInput,
+): { vx: number; vy: number } {
+  if (hit.kind === "wall") {
+    vx = -vx;
+    return normSpeed(vx, vy, speed);
+  }
+  if (hit.kind === "paddle") {
+    const impactX = rayOx + rayUx * hit.t;
+    if (hit.face === "bottom") {
+      const pb = input.paddleBottom;
+      if (!pb) return reflectBrickVelocity(vx, vy, 0, -1, speed);
+      return velocityAfterBottomPaddle(impactX, pb.cx, pb.halfW, speed);
+    }
+    const pt = input.paddleTop;
+    if (!pt) return reflectBrickVelocity(vx, vy, 0, 1, speed);
+    return velocityAfterTopPaddle(impactX, pt.cx, pt.halfW, speed);
+  }
+  return reflectBrickVelocity(vx, vy, hit.nx, hit.ny, speed);
+}
+
 /**
- * Returns 2–3 vertices: start, first impact, optional end after one bounce (inside clip box).
+ * Start, first impact, then one more segment (max three points — paddle / brick / wall / clip).
  */
 export function computeVersusTrajectoryPolyline(input: TrajectoryInput): { x: number; y: number }[] {
   const out: { x: number; y: number }[] = [];
@@ -225,43 +385,31 @@ export function computeVersusTrajectoryPolyline(input: TrajectoryInput): { x: nu
   let uy = vy / len0;
   out.push({ x: ox, y: oy });
 
-  let best: HitKind | null = null;
-
-  const tL = rayVerticalWall(ox, oy, ux, uy, input.wallLeft + r, input.wallYTop, input.wallYBot);
-  if (tL !== null && ux < -1e-6 && tL < hitTime(best) - 1e-4) best = { kind: "wall", t: tL };
-
-  const tR = rayVerticalWall(ox, oy, ux, uy, input.wallRight - r, input.wallYTop, input.wallYBot);
-  if (tR !== null && ux > 1e-6 && tR < hitTime(best) - 1e-4) best = { kind: "wall", t: tR };
-
-  for (const b of input.bricks) {
-    const hit = rayExpandedAabbEnter(ox, oy, ux, uy, b.x, b.y, b.w, b.h, r);
-    if (hit && hit.t < hitTime(best) - 1e-4) {
-      best = { kind: "brick", t: hit.t, nx: hit.nx, ny: hit.ny };
-    }
-  }
-
+  const best = collectNextHit(ox, oy, ux, uy, input, r, true);
   const tNoHit = rayExitBox(ox, oy, ux, uy, minX, minY, maxX, maxY);
   if (!best) {
     const t = Math.min(tNoHit, 520);
     out.push({ x: ox + ux * t, y: oy + uy * t });
     return out;
   }
+  if (best.t > tNoHit + 1e-3) {
+    const t = Math.min(tNoHit, 520);
+    out.push({ x: ox + ux * t, y: oy + uy * t });
+    return out;
+  }
 
+  const rayOx = ox;
+  const rayOy = oy;
+  const rayUx = ux;
+  const rayUy = uy;
   ox += ux * best.t;
   oy += uy * best.t;
   out.push({ x: ox, y: oy });
 
   const nudge = 0.6;
-  if (best.kind === "wall") {
-    vx = -vx;
-    const nrmW = normSpeed(vx, vy, speed);
-    vx = nrmW.vx;
-    vy = nrmW.vy;
-  } else {
-    const refl = reflectBrickVelocity(vx, vy, best.nx, best.ny, speed);
-    vx = refl.vx;
-    vy = refl.vy;
-  }
+  const bounced = applyBounceAtHit(rayOx, rayOy, rayUx, rayUy, vx, vy, best, speed, input);
+  vx = bounced.vx;
+  vy = bounced.vy;
   const l = Math.hypot(vx, vy);
   if (l > 1e-6) {
     ox += (vx / l) * nudge;
@@ -275,9 +423,17 @@ export function computeVersusTrajectoryPolyline(input: TrajectoryInput): { x: nu
   ux = vx / spd2;
   uy = vy / spd2;
 
-  const t2 = Math.min(rayExitBox(ox, oy, ux, uy, minX, minY, maxX, maxY), 720);
-  out.push({ x: ox + ux * t2, y: oy + uy * t2 });
+  const best2 = collectNextHit(ox, oy, ux, uy, input, r, true);
+  const tExit2 = Math.min(rayExitBox(ox, oy, ux, uy, minX, minY, maxX, maxY), 720);
 
+  if (!best2 || best2.t > tExit2 + 1e-3) {
+    out.push({ x: ox + ux * tExit2, y: oy + uy * tExit2 });
+    return out;
+  }
+
+  ox += ux * best2.t;
+  oy += uy * best2.t;
+  out.push({ x: ox, y: oy });
   return out;
 }
 

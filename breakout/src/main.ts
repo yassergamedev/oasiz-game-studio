@@ -59,6 +59,20 @@ function saveSettings(s: Settings): void {
 
 function triggerHaptic(type: "light" | "medium" | "heavy" | "success" | "error", settings: Settings): void {
   if (!settings.haptics) return;
+  const now = performance.now();
+  const anyMinGap = 28;
+  const perTypeMinGap: Record<typeof type, number> = {
+    light: 45,
+    medium: 65,
+    heavy: 90,
+    success: 140,
+    error: 120,
+  };
+  if (now - lastHapticAnyAt < anyMinGap) return;
+  const prevType = lastHapticTypeAt[type];
+  if (now - prevType < perTypeMinGap[type]) return;
+  lastHapticAnyAt = now;
+  lastHapticTypeAt[type] = now;
   const fn = (window as unknown as { triggerHaptic?: (t: string) => void }).triggerHaptic;
   if (typeof fn === "function") fn(type);
 }
@@ -71,6 +85,14 @@ function submitMatchEndScore(): void {
 
 let settings = loadSettings();
 let scoreSubmitted = false;
+let lastHapticAnyAt = -1e9;
+const lastHapticTypeAt: Record<"light" | "medium" | "heavy" | "success" | "error", number> = {
+  light: -1e9,
+  medium: -1e9,
+  heavy: -1e9,
+  success: -1e9,
+  error: -1e9,
+};
 
 /** Background music may start only after a user gesture (Play). */
 let bgmAllowed = false;
@@ -122,15 +144,40 @@ const toggleLightMode = document.getElementById("toggleLightMode") as HTMLInputE
 const btnCloseSettings = document.getElementById("btnCloseSettings") as HTMLButtonElement;
 
 const startOverlay = document.getElementById("startOverlay")!;
+const tutorialOverlay = document.getElementById("tutorialOverlay")!;
 const winOverlay = document.getElementById("winOverlay")!;
 const winBannerTitle = document.getElementById("winBannerTitle") as HTMLDivElement;
 
 const btnPlay = document.getElementById("btnPlay") as HTMLButtonElement;
+const btnTutorialOk = document.getElementById("btnTutorialOk") as HTMLButtonElement;
 const btnWinRestart = document.getElementById("btnWinRestart") as HTMLButtonElement;
 const btnWinNextArena = document.getElementById("btnWinNextArena") as HTMLButtonElement;
+let tutorialClosing = false;
 
 const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 let canvasDpr = 1;
+
+/** Fade / re-stagger aim lines when ball count or who holds the ball changes (not every pixel). */
+let trajectoryRevealT0 = performance.now();
+let trajectoryRevealFingerprint = "";
+
+function smoothstep01(t: number): number {
+  const x = Math.max(0, Math.min(1, t));
+  return x * x * (3 - 2 * x);
+}
+
+function updateTrajectoryRevealFingerprint(): void {
+  const fp =
+    game.phase +
+    ":" +
+    String(game.balls.length) +
+    ":" +
+    game.balls.map((b) => (b ? String(b.stuckTo) : "x")).join(",");
+  if (fp !== trajectoryRevealFingerprint) {
+    trajectoryRevealFingerprint = fp;
+    trajectoryRevealT0 = performance.now();
+  }
+}
 
 let uiPack: BreakoutUiPack | null = null;
 let versusHudLayout: VersusHudLayout | null = null;
@@ -653,7 +700,12 @@ function frame(now: number): void {
       !introBlocking() &&
       (game.phase === "ready" || game.phase === "playing")
     ) {
-      const dashOff = -(performance.now() * 0.035) % 24;
+      updateTrajectoryRevealFingerprint();
+      const revealAge = performance.now() - trajectoryRevealT0;
+      const revealT = reduceMotion ? 1 : Math.min(1, revealAge / 280);
+      const revealAlpha = smoothstep01(revealT);
+      const lineGrow = 0.35 + 0.65 * revealAlpha;
+      const dashOff = -(performance.now() * 0.028) % 28;
       const stroke = isMinimalBreakoutVisual()
         ? getMinColors().accent
         : "rgba(186, 230, 253, 0.82)";
@@ -663,17 +715,19 @@ function frame(now: number): void {
       ctx.beginPath();
       ctx.rect(game.wallLeft, pfTop, game.wallRight - game.wallLeft, pfH);
       ctx.clip();
+      const multi = game.balls.length > 1;
+      const baseLw = isMinimalBreakoutVisual() ? 2 : 2.25;
       for (let bi = 0; bi < game.balls.length; bi++) {
         const ball = game.balls[bi];
-        if (!ball || ball.stuckTo !== 0) continue;
+        if (!ball) continue;
         const pts = game.getBallTrajectoryPolyline(ball);
         if (pts.length < 2) continue;
         drawTrajectoryPolyline(ctx, pts, {
           stroke,
-          lineWidth: isMinimalBreakoutVisual() ? 2 : 2.25,
-          dash: [7, 9],
+          lineWidth: baseLw * lineGrow,
+          dash: [10, 12],
           dashOffset: dashOff + bi * 4,
-          globalAlpha: game.balls.length > 1 ? 0.38 : 0.5,
+          globalAlpha: (multi ? 0.3 : 0.48) * revealAlpha,
         });
       }
       ctx.restore();
@@ -765,7 +819,25 @@ function bindSettingsUi(): void {
 }
 
 btnPlay.addEventListener("click", () => {
-  beginMenuToGameplay();
+  triggerHaptic("light", settings);
+  tutorialOverlay.classList.remove("hidden");
+  tutorialOverlay.classList.remove("tutorial-overlay--closing");
+  requestAnimationFrame(() => {
+    tutorialOverlay.classList.add("tutorial-overlay--open");
+  });
+});
+
+btnTutorialOk.addEventListener("click", () => {
+  if (tutorialClosing) return;
+  tutorialClosing = true;
+  tutorialOverlay.classList.remove("tutorial-overlay--open");
+  tutorialOverlay.classList.add("tutorial-overlay--closing");
+  window.setTimeout(() => {
+    tutorialOverlay.classList.add("hidden");
+    tutorialOverlay.classList.remove("tutorial-overlay--closing");
+    tutorialClosing = false;
+    beginMenuToGameplay();
+  }, reduceMotion ? 0 : 260);
 });
 
 let winOverlayExitBusy = false;
@@ -859,10 +931,7 @@ canvas.addEventListener("pointerdown", (e) => {
     paddleXAtPivot,
   });
   if (!introBlocking() && (game.phase === "ready" || game.phase === "playing")) {
-    const stuck = getStuckBallOwner();
-    if (stuck === 0 || stuck === player) {
-      game.startPlayOrLaunch();
-    }
+    game.launchPlayerBall(player);
   }
 });
 
@@ -901,19 +970,13 @@ window.addEventListener("keydown", (e) => {
   if (e.code === "Space") {
     e.preventDefault();
     if (!introBlocking() && (game.phase === "ready" || game.phase === "playing")) {
-      const stuck = getStuckBallOwner();
-      if (stuck === 0 || stuck === 1) {
-        game.startPlayOrLaunch();
-      }
+      game.launchPlayerBall(1);
     }
   }
   if (e.code === "Enter" || e.code === "NumpadEnter") {
     e.preventDefault();
     if (!introBlocking() && (game.phase === "ready" || game.phase === "playing")) {
-      const stuck = getStuckBallOwner();
-      if (stuck === 0 || stuck === 2) {
-        game.startPlayOrLaunch();
-      }
+      game.launchPlayerBall(2);
     }
   }
 });

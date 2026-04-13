@@ -226,7 +226,7 @@ for (const def of LAYOUTS) {
   assertBalancedVersusLayout(def.name, def.grid);
 }
 
-const BASE_BALL_SPEED = 415;
+const BASE_BALL_SPEED = 325;
 const SLOW_MULT = 0.5;
 const PADDLE_BIG_SCALE = 1.62;
 const PADDLE_SMALL_SCALE = 0.52;
@@ -502,21 +502,35 @@ export class VersusBreakoutGame {
 
   /** Dotted aim path in playfield space (same transform as `draw`). */
   getBallTrajectoryPolyline(ball: VersusBall): { x: number; y: number }[] {
-    if (ball.stuckTo !== 0) return [];
-    if (Math.hypot(ball.vx, ball.vy) < 8) return [];
+    let vx: number;
+    let vy: number;
+    if (ball.stuckTo === 1) {
+      const v = this.velocityFromBottomPaddleAim(ball.x);
+      vx = v.vx;
+      vy = v.vy;
+    } else if (ball.stuckTo === 2) {
+      const v = this.velocityFromTopPaddleAim(ball.x);
+      vx = v.vx;
+      vy = v.vy;
+    } else {
+      if (Math.hypot(ball.vx, ball.vy) < 8) return [];
+      vx = ball.vx;
+      vy = ball.vy;
+    }
     const bricks: TrajectoryBrick[] = [];
     for (let i = 0; i < this.bricks.length; i++) {
       const b = this.bricks[i];
       if (!b.alive) continue;
       bricks.push({ id: i, x: b.x, y: b.y, w: b.w, h: b.h });
     }
+    const sp = this.currentBallSpeed();
     return computeVersusTrajectoryPolyline({
       ox: ball.x,
       oy: ball.y,
-      vx: ball.vx,
-      vy: ball.vy,
+      vx,
+      vy,
       r: ball.r,
-      speed: this.currentBallSpeed(),
+      speed: sp,
       wallLeft: this.wallLeft,
       wallRight: this.wallRight,
       wallYTop: this.wallYTop,
@@ -524,7 +538,46 @@ export class VersusBreakoutGame {
       clipMinY: this.playfieldTop(),
       clipMaxY: this.playfieldBottom(),
       bricks,
+      paddleBottom: {
+        cx: this.paddle1X,
+        yFace: this.paddle1Y - this.paddleH * 0.5 - ball.r,
+        halfW: this.getPaddleW(1) * 0.5,
+      },
+      paddleTop: {
+        cx: this.paddle2X,
+        yFace: this.paddle2Y + this.paddleH * 0.5 + ball.r,
+        halfW: this.getPaddleW(2) * 0.5,
+      },
     });
+  }
+
+  /** Same angles as `reflectBottomPaddle` — used for aim preview and launch so the line matches flight. */
+  private velocityFromBottomPaddleAim(ballX: number): { vx: number; vy: number } {
+    const w = this.getPaddleW(1);
+    const px = this.paddle1X;
+    const py = this.paddle1Y;
+    const t = (ballX - (px - w * 0.5)) / w;
+    const clampedT = Math.max(0, Math.min(1, t));
+    const angle = Math.PI * (0.15 + clampedT * 0.7);
+    const sp = this.currentBallSpeed();
+    let vx = Math.cos(angle) * sp;
+    let vy = -Math.abs(Math.sin(angle) * sp);
+    const n = normSpeed(vx, vy, sp);
+    return { vx: n.vx, vy: n.vy };
+  }
+
+  private velocityFromTopPaddleAim(ballX: number): { vx: number; vy: number } {
+    const w = this.getPaddleW(2);
+    const px = this.paddle2X;
+    const py = this.paddle2Y;
+    const t = (ballX - (px - w * 0.5)) / w;
+    const clampedT = Math.max(0, Math.min(1, t));
+    const angle = Math.PI * (0.15 + clampedT * 0.7);
+    const sp = this.currentBallSpeed();
+    let vx = Math.cos(angle) * sp;
+    let vy = Math.abs(Math.sin(angle) * sp);
+    const n = normSpeed(vx, vy, sp);
+    return { vx: n.vx, vy: n.vy };
   }
 
   getPaddleW(p: PlayerId): number {
@@ -696,14 +749,16 @@ export class VersusBreakoutGame {
   resize(width: number, height: number): void {
     this.w = width;
     this.h = height;
-    const marginX = Math.max(10, width * 0.035);
+    const marginX = Math.max(10, width * 0.026);
     this.wallLeft = marginX;
     this.wallRight = width - marginX;
 
-    const paddleClear = Math.max(6, height * 0.01);
-    const hudArenaPad = Math.max(22, height * 0.028);
-    const topBand = this.hudTopReserve + Math.max(paddleClear, hudArenaPad);
-    const botBand = this.hudBotReserve + Math.max(paddleClear, hudArenaPad);
+    // Reserves already include safe insets + score pill bands (`computeVersusHudLayout`).
+    // Do not add a second large "arena pad" here — that only shrinks the gap between paddles
+    // (same screen height) and reads as shifting content, not a longer map.
+    const bandSlack = Math.max(5, Math.min(14, height * 0.014));
+    const topBand = this.hudTopReserve + bandSlack;
+    const botBand = this.hudBotReserve + bandSlack;
     this.paddle2Y = topBand + this.paddleH * 0.5;
     this.paddle1Y = height - botBand - this.paddleH * 0.5;
 
@@ -714,8 +769,8 @@ export class VersusBreakoutGame {
 
     const faceGap =
       this.paddle1Y - this.paddleH * 0.5 - (this.paddle2Y + this.paddleH * 0.5);
-    const desiredBrickPad = Math.max(120, height * 0.19);
-    const minBrickBand = 56;
+    const desiredBrickPad = Math.max(128, height * 0.21);
+    const minBrickBand = 52;
     const maxPadForBand = Math.max(0, (faceGap - minBrickBand) * 0.5);
     const brickPad = Math.max(8, Math.min(desiredBrickPad, maxPadForBand));
     this.brickBandTop = this.paddle2Y + this.paddleH * 0.5 + brickPad;
@@ -862,6 +917,14 @@ export class VersusBreakoutGame {
         r,
         stuckTo: 1,
       },
+      {
+        x: this.paddle2X,
+        y: this.paddle2Y + this.paddleH * 0.5 + r + 2,
+        vx: 0,
+        vy: 0,
+        r,
+        stuckTo: 2,
+      },
     ];
     this.syncStuckBalls();
   }
@@ -904,19 +967,26 @@ export class VersusBreakoutGame {
   startPlayOrLaunch(): void {
     if (this.phase === "game_won") return;
     if (this.phase === "ready") this.setPhase("playing");
-    const sp = this.currentBallSpeed();
     for (const b of this.balls) {
       if (b.stuckTo === 0) continue;
-      const up = b.stuckTo === 1;
+      const st = b.stuckTo;
       b.stuckTo = 0;
-      const angle = up
-        ? -Math.PI * 0.5 + (Math.random() - 0.5) * 0.55
-        : Math.PI * 0.5 + (Math.random() - 0.5) * 0.55;
-      b.vx = Math.cos(angle) * sp;
-      b.vy = Math.sin(angle) * sp;
-      const n = normSpeed(b.vx, b.vy, sp);
-      b.vx = n.vx;
-      b.vy = n.vy;
+      const v = st === 1 ? this.velocityFromBottomPaddleAim(b.x) : this.velocityFromTopPaddleAim(b.x);
+      b.vx = v.vx;
+      b.vy = v.vy;
+    }
+  }
+
+  /** Launch only balls currently attached to the requested player's paddle. */
+  launchPlayerBall(player: PlayerId): void {
+    if (this.phase === "game_won") return;
+    if (this.phase === "ready") this.setPhase("playing");
+    for (const b of this.balls) {
+      if (b.stuckTo !== player) continue;
+      b.stuckTo = 0;
+      const v = player === 1 ? this.velocityFromBottomPaddleAim(b.x) : this.velocityFromTopPaddleAim(b.x);
+      b.vx = v.vx;
+      b.vy = v.vy;
     }
   }
 

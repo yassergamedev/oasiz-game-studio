@@ -241,6 +241,97 @@
         pointer-events: auto;
       }
 
+      #tutorialOverlay {
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.24s ease;
+      }
+
+      #tutorialOverlay.tutorial-overlay--open {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      .tutorial-panel {
+        width: min(94vw, 760px);
+        border-radius: 20px;
+        padding: 26px 22px 20px;
+        background: rgba(10, 10, 10, 0.9);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        box-shadow:
+          0 20px 42px rgba(0, 0, 0, 0.5),
+          0 0 0 1px rgba(239, 68, 68, 0.14);
+        transform: scale(0.88);
+        opacity: 0;
+        transition:
+          transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+          opacity 0.24s ease;
+      }
+
+      #tutorialOverlay.tutorial-overlay--open .tutorial-panel {
+        transform: scale(1);
+        opacity: 1;
+      }
+
+      #tutorialOverlay.tutorial-overlay--closing .tutorial-panel {
+        transform: scale(0.9);
+        opacity: 0;
+      }
+
+      .start-tutorial {
+        width: 100%;
+        margin-top: 0;
+      }
+
+      #tutorialOverlay .btn-row {
+        margin-top: 20px;
+        justify-content: center;
+      }
+
+      #tutorialOverlay #btnTutorialOk {
+        width: min(260px, 72%);
+      }
+
+      .start-tutorial__title {
+        font-family: "Orbitron", system-ui, sans-serif;
+        font-weight: 700;
+        font-size: clamp(0.7rem, 2.5vw, 0.84rem);
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: rgba(186, 230, 253, 0.96);
+      }
+
+      .start-tutorial__win {
+        margin-top: 6px;
+        font-size: clamp(0.72rem, 2.55vw, 0.9rem);
+        line-height: 1.35;
+        color: rgba(226, 232, 240, 0.94);
+      }
+
+      .start-tutorial__grid {
+        margin-top: 10px;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px 16px;
+      }
+
+      .start-chip {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        min-width: 0;
+        font-size: clamp(0.68rem, 2.4vw, 0.84rem);
+        color: rgba(226, 232, 240, 0.92);
+      }
+
+      .start-chip__icon {
+        flex: 0 0 auto;
+        width: 17px;
+        height: 17px;
+        object-fit: contain;
+        image-rendering: auto;
+      }
+
       .start-play-btn {
         appearance: none;
         border: none;
@@ -974,6 +1065,47 @@
         );
       }
 
+      html.minimal-breakout .start-tutorial {
+        background: transparent;
+        border-color: transparent;
+        box-shadow: none;
+      }
+
+      html.minimal-breakout .tutorial-panel {
+        background: rgba(10, 10, 10, 0.92);
+        border-color: rgba(255, 255, 255, 0.24);
+        box-shadow:
+          0 22px 48px rgba(0, 0, 0, 0.6),
+          0 0 0 1px rgba(239, 68, 68, 0.16);
+      }
+
+      html.minimal-breakout .start-tutorial__title {
+        color: rgba(252, 165, 165, 0.96);
+      }
+
+      html.minimal-breakout.minimal-breakout--light .start-tutorial {
+        background: transparent;
+        border-color: transparent;
+        box-shadow: none;
+      }
+
+      html.minimal-breakout.minimal-breakout--light .tutorial-panel {
+        background: rgba(255, 255, 255, 0.95);
+        border-color: rgba(10, 10, 10, 0.2);
+        box-shadow:
+          0 14px 32px rgba(0, 0, 0, 0.12),
+          0 0 0 1px rgba(10, 10, 10, 0.06);
+      }
+
+      html.minimal-breakout.minimal-breakout--light .start-tutorial__title {
+        color: rgba(185, 28, 28, 0.96);
+      }
+
+      html.minimal-breakout.minimal-breakout--light .start-tutorial__win,
+      html.minimal-breakout.minimal-breakout--light .start-chip {
+        color: rgba(10, 10, 10, 0.86);
+      }
+
       html.minimal-breakout #settings-btn .settings-cog-svg {
         color: #e5e5e5;
         filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.12));
@@ -1185,6 +1317,28 @@
                   <span class="neon-play-dust neon-play-dust--b" aria-hidden="true"></span>
                 </span>
               </span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div id="tutorialOverlay" class="overlay hidden">
+        <div class="tutorial-panel">
+          <div class="start-tutorial" aria-label="How to win and power effects">
+            <div class="start-tutorial__title">How to win</div>
+            <div class="start-tutorial__win">Clear all bricks of your color before your opponent.</div>
+            <div class="start-tutorial__grid">
+              <div class="start-chip"><img class="start-chip__icon" src="/assets/multiple.png" alt="" /><span>Multiple: 3 balls</span></div>
+              <div class="start-chip"><img class="start-chip__icon" src="/assets/wide.png" alt="" /><span>Wide: bigger paddle</span></div>
+              <div class="start-chip"><img class="start-chip__icon" src="/assets/slow.png" alt="" /><span>Slow: calmer ball speed</span></div>
+              <div class="start-chip"><img class="start-chip__icon" src="/assets/convert.png" alt="" /><span>Convert: steal enemy bricks</span></div>
+              <div class="start-chip"><img class="start-chip__icon" src="/assets/narrow.png" alt="" /><span>Narrow: smaller paddle</span></div>
+              <div class="start-chip"><img class="start-chip__icon" src="/assets/ying.png" alt="" /><span>Ying: reverse brick ownership</span></div>
+            </div>
+          </div>
+          <div class="btn-row">
+            <button type="button" class="neon-pill-btn neon-pill-btn--slate" id="btnTutorialOk">
+              <span class="neon-pill-btn__label">Start Match</span>
             </button>
           </div>
         </div>

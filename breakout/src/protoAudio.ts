@@ -25,6 +25,16 @@ const sampleBuffers: Partial<Record<SampleKey, AudioBuffer>> = {};
 const sampleLoadFailed = new Set<SampleKey>();
 let sampleLoadPromise: Promise<void> | null = null;
 
+/** Per-event anti-spam so burst collisions don't flood the audio thread. */
+const sfxLastAtMs: Record<string, number> = {};
+function allowSfxBurst(key: string, minIntervalMs: number): boolean {
+  const now = performance.now();
+  const prev = sfxLastAtMs[key] ?? -1e9;
+  if (now - prev < minIntervalMs) return false;
+  sfxLastAtMs[key] = now;
+  return true;
+}
+
 function ctx(): AudioContext | null {
   if (typeof AudioContext === "undefined") return null;
   if (!ac) ac = new AudioContext();
@@ -149,19 +159,24 @@ function versusWinBeep(): void {
 
 export const ProtoAudio = {
   paddleHit(): void {
+    if (!allowSfxBurst("paddleHit", 42)) return;
     beep(220, 45, 0.06, "triangle");
   },
   brickBreak(): void {
+    if (!allowSfxBurst("brickBreak", 36)) return;
     playSample("break", brickBreakBeep);
   },
   /** Mid/big brick chipped but not destroyed. */
   brickChip(): void {
+    if (!allowSfxBurst("brickChip", 55)) return;
     brickChipTone();
   },
   wallBounce(): void {
+    if (!allowSfxBurst("wallBounce", 65)) return;
     beep(180, 20, 0.04, "sine");
   },
   powerCollect(): void {
+    if (!allowSfxBurst("powerCollect", 85)) return;
     playSample("powerup", powerCollectBeep);
   },
   loseLife(): void {
@@ -178,14 +193,17 @@ export const ProtoAudio = {
     window.setTimeout(() => beep(784, 180, 0.09, "triangle"), 220);
   },
   versusWin(): void {
+    if (!allowSfxBurst("versusWin", 240)) return;
     playSample("victory", versusWinBeep);
   },
   superReverse(): void {
+    if (!allowSfxBurst("superReverse", 180)) return;
     beep(220, 60, 0.1, "sawtooth");
     window.setTimeout(() => beep(880, 80, 0.09, "square"), 70);
     window.setTimeout(() => beep(330, 100, 0.1, "triangle"), 160);
   },
   superConvert(): void {
+    if (!allowSfxBurst("superConvert", 180)) return;
     beep(392, 55, 0.08, "square");
     window.setTimeout(() => beep(523, 55, 0.08, "square"), 60);
     window.setTimeout(() => beep(659, 120, 0.095, "triangle"), 120);
